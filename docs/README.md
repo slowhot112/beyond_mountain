@@ -10,9 +10,10 @@
 1. **`山外山PRD.md`** —— 产品需求真相：定位、用户画像、四大核心功能模块。
 2. **`DECISIONS.md`** —— 已拍板的决策日志（技术选型、产品范围），活文档，随项目迭代。
 3. **`ZHIHU-API.md`** —— 知乎开放平台 15 个接口的真实字段、调用上限与坑点（已验证）。
+4. **`REFERENCE-PROJECTS.md`** —— 8 个对标项目的真实核验（防幻觉/防技术栈记错），含自身现状基线。
 
 > 配套提示语（可直接复制到新对话开头）：
-> 「先读 zhihu-alchemy 下的 `docs/山外山PRD.md`、`docs/DECISIONS.md`、`docs/ZHIHU-API.md`，所有信息以文件为准，不要凭记忆。」
+> 「先读 zhihu-alchemy 下的 `docs/山外山PRD.md`、`docs/DECISIONS.md`、`docs/ZHIHU-API.md`、`docs/REFERENCE-PROJECTS.md`，所有信息以文件为准，不要凭记忆。」
 
 ---
 
@@ -55,6 +56,11 @@
 | 写计划书 / 做团队介绍 | `TEAM_INTRO.md` → `plan-material.md` |
 | 引用外部背书 / 找文献 | `references.md` |
 | 联调求职场景 / 准备 demo 数据 | `sample-resume.md` |
+
+> ⚠️ **命名差异旁注**：`山外山PRD.md` 第4节用"模块 1-5"编号（含已砍的模块 5 沉浸式工牌），而 `TEAM_INTRO.md` 描述的是当前实际四大模块（⚔️ 刘看山辩论台 / 🧭 信谁框架 / 🎯 判断力自测 / 🚶 行动地图）。
+> - 读 PRD 时：以"模块 1-4"为准（已对齐 D-03 决策），模块 5 已被标 `[已修订 2026-08-27]`。
+> - 读 TEAM_INTRO 时：四大模块名就是当前产品对外讲法，可直接引用于计划书与答辩。
+> - 不要把"模块 N"硬映射到"卡片名"——两者是不同抽象层的产物。
 
 ---
 

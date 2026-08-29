@@ -52,8 +52,7 @@ C:\Users\张鸿飞\CodeBuddy\20260819220339\zhihu-alchemy
 - 城市选择器（BOSS 直聘式）、行业自由填写、接真实 Secret 走 LIVE、localhost 全流程联调跑通
 
 ⚠️ **未完成 / 打磨中**
-- 细节打磨：`dominantSide` 展示、导出 MD 格式
-- 3D 工牌：已砍（D-03），降级为静态刘看山引导页
+- 3D 工牌：D-03 已砍，不纳入 MVP（其降级项"刘看山引导页 / dominantSide 可视化 / 导出 MD 含处境卡"已于 2026-08-30 完成，见上 ✅）
 
 ---
 

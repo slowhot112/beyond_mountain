@@ -6,14 +6,15 @@ import Quiz from './components/Quiz.jsx';
 import ActionMap from './components/ActionMap.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
 import {
-  recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaPayload, buildQueries, api,
+  recordTopic, recordSide, dominantSide, sideStats, loadHistory, exportMd, personaPayload, buildQueries, api,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
+import Guide from './components/Guide.jsx';
 
 const MODE = 'live';
 
 export default function App() {
-  const [step, setStep] = useState('onboarding'); // onboarding | card | result
+  const [step, setStep] = useState('guide'); // guide | onboarding | card | result
   const [card, setCard] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -172,15 +173,16 @@ export default function App() {
     setResumeConfirm(null);
   }
 
-  function onQuizAnswer(i, v) {
-    if (!data) return;
-    const side = typeof v === 'string' && v.includes('实干') ? 'r1'
-      : typeof v === 'string' && v.includes('谋略') ? 'r2'
-      : typeof v === 'string' && v.includes('联结') ? 'r3' : null;
-    if (side) recordSide(side);
+  function onQuizAnswer(i, v, side) {
+    if (!data || !side) return;
+    recordSide(side); // 存真实 role id，展示时再映射成派别名
   }
 
-  const dom = dominantSide();
+  const roleNameMap = (data && data.conflict && data.conflict.roles)
+    ? data.conflict.roles.reduce((m, r) => { m[r.id] = r.name; return m; }, {})
+    : {};
+  const stats = sideStats(roleNameMap);
+  const dom = dominantSide(roleNameMap);
 
   return (
     <div className="app">
@@ -191,6 +193,10 @@ export default function App() {
 
       <main className="container">
         {error && <div className="error">{error}</div>}
+
+        {step === 'guide' && (
+          <Guide onStart={() => setStep('onboarding')} />
+        )}
 
         {step === 'onboarding' && (
           <Onboarding initial={card} onBuildCard={buildCard} history={history} />
@@ -238,10 +244,22 @@ export default function App() {
               <h2>炼金包：{esc0(topic)}</h2>
               <div className="result-actions">
                 <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
-                <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
+                <button className="chip primary" onClick={() => exportMd(data, card)}>导出 Markdown</button>
               </div>
             </div>
-            {dom && <div className="dominant muted">你偏向：<b>{dom.label}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
+            {stats.total > 0 && (
+              <div className="dominant-bar">
+                <div className="db-title">你的整体倾向（基于 {stats.total} 次自测）</div>
+                <div className="db-track">
+                  {stats.entries.map((e) => (
+                    <div key={e.id} className="db-seg" style={{ width: `${(e.n / stats.total) * 100}%` }} title={`${e.name}：${e.n} 次`}>
+                      <span className="db-name">{e.name}</span>
+                    </div>
+                  ))}
+                </div>
+                {dom && <div className="db-lead">更偏向：<b>{dom.label}</b></div>}
+              </div>
+            )}
             <ConflictWall conflict={data.conflict} />
             {data.framework && (
               <section className="card framework">

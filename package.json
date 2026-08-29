@@ -1,0 +1,23 @@
+{
+  "name": "zhihu-alchemy",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "山外山 · 知乎炼金术（React + Vite 前端 + Node 后端代理）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "pdfjs-dist": "^4.7.76",
+    "mammoth": "^1.8.0",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

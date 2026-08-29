@@ -1,0 +1,30 @@
+# 环境变量（含 Access Secret，切勿提交）
+.env
+
+# 依赖
+node_modules/
+
+# 运行时缓存（API 响应，非源码）
+.cache/
+
+# 构建产物
+dist/
+
+# Vite 开发/构建临时文件
+vite.config.js.timestamp-*.mjs
+vite.config.ts.timestamp-*.mjs
+
+# 日志
+*.log
+
+# 临时 / 本地开发脚本（非业务代码）
+tmp_*.cjs
+start-md.bat
+start-port3001.ps1
+start-vite.py
+
+# 旁支子项目（工牌图片拷贝脚本相关，非部署所需）
+lanyard/
+
+# 系统文件
+.DS_Store

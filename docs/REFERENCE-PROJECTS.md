@@ -7,7 +7,7 @@
 - `DECISIONS.md` —— **已拍板的决策**（技术选型/产品范围），最高优先级
 - `ZHIHU-API.md` —— 知乎 API 真实接口/上限/坑
 - `REFERENCE-PROJECTS.md` —— 本文，8 个参考项目真相
-> 新对话开头可直接复制：「先读 zhihu-alchemy 下的 DECISIONS.md、ZHIHU-API.md、REFERENCE-PROJECTS.md，所有信息以文件为准，不要凭记忆。」
+> 新对话开头可直接复制：「先读 zhihu-alchemy/docs/ 下的 DECISIONS.md、ZHIHU-API.md、REFERENCE-PROJECTS.md，所有信息以文件为准，不要凭记忆。」
 
 ---
 

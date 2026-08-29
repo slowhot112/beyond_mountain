@@ -19,8 +19,12 @@
 | 变量 | 必填 | 说明 |
 |---|---|---|
 | `ZHIHU_ACCESS_SECRET` | 否 | 知乎开放平台 Access Secret。不填 → 演示模式（话题自适应兜底，功能完整）。 |
+| `STEPFUN_API_KEY` | 否 | 阶跃星辰（StepFun）API Key，用于简历结构化字段提取（见 `/api/resume`）。不填 → 简历解析降级为浏览器端 pdfjs/tesseract 兜底。 |
+| `STEPFUN_API_URL` | 否 | StepFun 端点，默认 `https://api.stepfun.com/step_plan/v1/chat/completions`。 |
+| `STEPFUN_MODEL` | 否 | StepFun 模型名，默认 `step-3.7-flash`。 |
 | `PORT` | 否 | 平台自动注入，本地默认 3000。 |
 | `CACHE_TTL` | 否 | 缓存秒数，默认 3600。 |
+| `MD_SERVICE_URL` | 否 | MarkItDown 本地服务地址，默认 `http://127.0.0.1:8011`，简历上传 `/api/parse-doc` 用。 |
 
 ## 评委体验保障
 - 未配 Secret：任意话题均返回**话题自适应演示内容**，四大模块完整可操作。

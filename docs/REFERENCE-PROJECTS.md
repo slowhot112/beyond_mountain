@@ -15,12 +15,12 @@
 
 | 层 | 技术 | 证据 |
 |---|---|---|
-| 后端 | Node.js 原生 `http` 模块，零三方依赖 | `server.mjs` 用 `import { createServer } from 'node:http'` |
-| 前端 | 原生 HTML + 原生 JS（无框架，无构建工具） | `public/index.html` + `public/app.js`（28KB 手写） |
-| AI/数据 | `zhihu.js` 调知乎 API + 文件缓存 + Mock 兜底 | 无 ORM |
-| 启动 | `package.json` 仅 `start: node server.mjs` | Node >= 18 |
+| 后端 | Node.js 原生 `http` 模块（`server.mjs`），零 Web 框架依赖 | `import { createServer } from 'node:http'` |
+| 前端 | React 18 + Vite 5 + 原生 CSS（无 UI 库） | `package.json` 含 `react ^18.3.1`、`vite ^5.4.0`、`@vitejs/plugin-react` |
+| AI/数据 | `zhihu.js` 调知乎 API + 文件缓存 + Mock 兜底 + StepFun 简历解析 | `.env.example` 含 `STEPFUN_*` |
+| 启动 | `npm start`（生产/Node 后端）/ `npm run dev`（Vite 热更新） | `package.json` scripts |
 
-**结论**：当前是「纯原生 JS 全栈原型」，零依赖、3 天可跑。但 PRD 第 4 节模块 5 写了"React + Three.js"，第 7 节又写"原生 JS"——**技术架构自相矛盾，需统一**（建议统一为 React + Vite 前端 + 保留 Node 后端）。
+**结论**：现为「React + Vite 前端 + Node 原生后端」结构。决策日志 `DECISIONS.md` D-01/D-02 拍板定档（D-01：前端从原生 JS 升 React；D-02：后端保留 Node 原生 http）。
 
 ---
 

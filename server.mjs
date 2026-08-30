@@ -10,8 +10,7 @@ import * as zhihu from './zhihu.js';
 import * as oauth from './oauth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PUBLIC = join(__dirname, 'public');
-const DIST = join(__dirname, 'dist'); // React 构建产物（生产模式优先）
+const DIST = join(__dirname, 'dist'); // React 构建产物（唯一托管目录；旧版 public/ 原型已删除）
 
 // 读取 .env（极简实现，避免额外依赖）
 function loadEnv() {
@@ -25,7 +24,8 @@ function loadEnv() {
 }
 loadEnv();
 
-const SECRET = process.env.ZHIHU_ACCESS_SECRET || '';
+// 鉴权密钥：主名 OPENAI_API_KEY（对齐 OpenAI 生态，见 DECISIONS D-11）；旧名 ZHIHU_ACCESS_SECRET 保留为回退
+const SECRET = process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET || '';
 const PORT = process.env.PORT || 3000;
 const TTL = Number(process.env.CACHE_TTL || 3600);
 // MarkItDown 文档解析服务地址（Python 进程，可选）
@@ -46,6 +46,8 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
 };
@@ -117,35 +119,33 @@ async function readUpload(req, limit = 30 * 1024 * 1024) {
 async function serveStatic(req, res) {
   const clean = req.url.split('?')[0];
   let p = clean === '/' ? '/index.html' : clean;
-  // 优先在 dist（React 构建产物）查找，找不到再回退 public（旧原型）
-  for (const base of [DIST, PUBLIC]) {
-    const filePath = normalize(join(base, p));
-    if (!filePath.startsWith(base)) {
-      res.writeHead(403).end('Forbidden');
-      return;
-    }
+  // 仅托管 dist/（React 构建产物）。未构建时明确报错，避免静默回退到旧版页面
+  const filePath = normalize(join(DIST, p));
+  if (!filePath.startsWith(DIST)) {
+    res.writeHead(403).end('Forbidden');
+    return;
+  }
+  try {
+    const s = await stat(filePath);
+    if (s.isDirectory()) throw new Error('dir');
+    const buf = await readFile(filePath);
+    res.writeHead(200, {
+      'Content-Type': MIME[extname(filePath)] || 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+    });
+    res.end(buf);
+    return;
+  } catch {
+    // 文件不存在 → SPA 路由回退到 dist/index.html；连构建产物都没有 → 404（先执行 npm run build）
     try {
-      const s = await stat(filePath);
-      if (s.isDirectory()) throw new Error('dir');
-      const buf = await readFile(filePath);
-      res.writeHead(200, {
-        'Content-Type': MIME[extname(filePath)] || 'application/octet-stream',
-        'Cache-Control': 'no-cache',
-      });
-      res.end(buf);
+      const idx = await readFile(join(DIST, 'index.html'));
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(idx);
       return;
-    } catch {
-      // 尝试该 base 下的 index.html（SPA 路由回退）
-      try {
-        const idx = await readFile(join(base, 'index.html'));
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(idx);
-        return;
-      } catch {}
-    }
+    } catch {}
   }
   res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-  res.end('<h1>404</h1>');
+  res.end('<h1>404</h1><p>前端未构建：请先执行 <code>npm run build</code> 再启动服务。</p>');
 }
 
 const server = createServer(async (req, res) => {
@@ -199,7 +199,7 @@ const server = createServer(async (req, res) => {
       if (!body.text || !String(body.text).trim()) return sendJson(res, { ok: false, code: 'EMPTY_TEXT', message: '简历文本为空' }, 400);
       console.log('[server /api/resume] text length:', String(body.text).length, 'secret exists:', !!SECRET);
       if (!SECRET || !SECRET.trim()) {
-        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '服务器未配置 ZHIHU_ACCESS_SECRET，无法调用知乎直答解析简历。可手动填写背景摘要继续使用，或联系管理员配置 API Secret。', data: { reason: 'no-secret', fields: {} } });
+        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '服务器未配置 OPENAI_API_KEY，无法调用知乎直答解析简历。可手动填写背景摘要继续使用，或联系管理员配置 API Key。', data: { reason: 'no-secret', fields: {} } });
       }
       const r = await zhihu.extractResume(SECRET, String(body.text));
       console.log('[server /api/resume] zhihu response ok:', r.ok, 'reason:', r.reason);
@@ -210,27 +210,24 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // ---- 健康检测：验证 ZHIHU_ACCESS_SECRET 是否能调通知乎 ----
+    // ---- 健康检测：验证 OPENAI_API_KEY（旧名 ZHIHU_ACCESS_SECRET 回退）是否可用（走免费额度接口，不烧直答 100 次/天配额） ----
     if (req.method === 'GET' && url.pathname === '/api/health') {
       if (!SECRET || !SECRET.trim()) {
-        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '未配置 ZHIHU_ACCESS_SECRET，请在 .env 中填入。', data: { configured: false } });
+        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '未配置 OPENAI_API_KEY，请在 .env 中填入（旧名 ZHIHU_ACCESS_SECRET 仍兼容）。', data: { configured: false } });
       }
-      try {
-        // 做一次轻量调用验证（用极简问题探测接口是否可用）
-        const probe = await zhihu.alchemy(SECRET, '测试', { identity: 'pre', industry: 'ai', sub: 'AIGC' });
-        // 只要网络能返回（无论有没有真实内容），都算 secret 有效
+      const q = await zhihu.zhihuQuota(SECRET);
+      if (q.ok) {
         return sendJson(res, {
           ok: true,
           data: {
             configured: true,
-            reachable: !probe.error,
-            message: probe.error ? `Secret 已配置，但调用返回错误：${probe.error}` : 'Secret 有效，知乎接口可正常调用。',
-            raw: typeof probe === 'object' ? Object.keys(probe) : null,
+            reachable: true,
+            message: 'Secret 有效，知乎接口可达（额度查询成功，免费接口不消耗配额）。',
+            raw: q.data, // 额度详情，前端展示用
           }
         });
-      } catch (e) {
-        return sendJson(res, { ok: false, code: 'PROBE_FAILED', message: 'Secret 已配置，但调用知乎失败：' + (e.message || '未知错误'), data: { configured: true, reachable: false } });
       }
+      return sendJson(res, { ok: false, code: 'PROBE_FAILED', message: `Secret 已配置，但额度查询失败：${q.reason || '未知错误'}`, data: { configured: true, reachable: false } });
     }
 
     // ---- 板块2：OAuth 接入（知乎账号授权 → 基于关注/粉丝做信息宇宙分析） ----

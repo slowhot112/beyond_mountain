@@ -6,8 +6,10 @@
 
 启动：
     pip install "markitdown[all]"
-    python md_server.py            # 默认监听 127.0.0.1:8011
+    python md_server.py            # 默认监听 127.0.0.1:8011（仅本机）
     PORT=9000 python md_server.py  # 自定义端口
+    HOST=0.0.0.0 python md_server.py  # 监听所有网卡（部署到 Render/Railway 等平台作第二个服务时必须，
+                                      # Node 后端通过 MD_SERVICE_URL 环境变量指向本服务）
 
 接口：
     POST /api/convert
@@ -33,6 +35,8 @@ from urllib.parse import urlparse
 import cgi
 
 PORT = int(os.environ.get("PORT", "8011"))
+# 默认仅监听本机；部署到 PaaS（Render/Railway 第二服务）时需 HOST=0.0.0.0 才能被 Node 后端访问
+HOST = os.environ.get("HOST", "127.0.0.1")
 # 单文件上限 30MB，防止过大请求
 MAX_SIZE = 30 * 1024 * 1024
 
@@ -113,6 +117,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"MarkItDown 文档解析服务已启动: http://127.0.0.1:{PORT}")
-    httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"MarkItDown 文档解析服务已启动: http://{HOST}:{PORT}")
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     httpd.serve_forever()

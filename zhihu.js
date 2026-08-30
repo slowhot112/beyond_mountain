@@ -1,5 +1,7 @@
 // 知乎开放平台 API 客户端（含本地缓存 + Mock 兜底）
 // 文档来源：zhihu-hackathon-skill 中的 http-api.md / user-api.md / open-platform.md
+// 知乎直答本身是 OpenAI 兼容接口（POST {OPENAI_BASE_URL}/chat/completions + messages + choices[0].message.content）；
+// 端点/模型可用环境变量 OPENAI_BASE_URL / OPENAI_MODEL 覆盖，默认值即知乎直答现状（命名对齐见 DECISIONS D-11）
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -62,6 +64,10 @@ const hasSecret = (secret) => Boolean(secret && secret.trim());
 const STEPFUN_KEY = process.env.STEPFUN_API_KEY || '';
 const STEPFUN_URL = process.env.STEPFUN_API_URL || 'https://api.stepfun.com/step_plan/v1/chat/completions';
 const STEPFUN_MODEL = process.env.STEPFUN_MODEL || 'step-3.7-flash';
+
+// ---------- 直答端点/模型：OpenAI 兼容命名（DECISIONS D-11），默认值 = 知乎直答现状 ----------
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://developer.zhihu.com/v1';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'zhida-fast-1p5';
 
 async function stepfunChat(prompt, model = STEPFUN_MODEL, ttl = 86400) {
   if (!STEPFUN_KEY || !STEPFUN_KEY.trim()) return '';
@@ -141,17 +147,18 @@ export async function zhihuHot(secret, limit = 30, ttl = 3600) {
   return items;
 }
 
-// ---------- 3. 知乎直答（大模型） ----------
-export async function zhihuZhida(secret, prompt, model = 'zhida-fast-1p5', ttl = 600) {
+// ---------- 3. 知乎直答（大模型，OpenAI 兼容格式：POST {OPENAI_BASE_URL}/chat/completions） ----------
+export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600) {
   if (!hasSecret(secret)) return MOCK.zhida(prompt);
   const ck = `zhida:${model}:${hash(prompt)}`;
   const hit = await cacheGet(ck);
   if (hit) return hit;
   try {
-    const r = await fetch(`${API_BASE}/v1/chat/completions`, {
+    const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: authHeaders(secret),
-      signal: AbortSignal.timeout(25000),
+      // 06 实测 2026-08-30：直答偶发 25s TimeoutError（第 2 次同载荷成功），放宽到 60s 给慢响应留空间（60s 在 Railway/Render 代理限制内）
+      signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
         model,
         stream: false,
@@ -174,8 +181,39 @@ export async function zhihuZhida(secret, prompt, model = 'zhida-fast-1p5', ttl =
   }
 }
 
-// ---------- 3.5 简历解析（模块③）----------
-// 输入：简历纯文本（前端已从 PDF/DOCX/TXT 提取）；输出：结构化字段
+// ---------- 3.4 额度查询（免费接口，不消耗直答/热榜额度） ----------
+// 用于 /api/health 健康检查与配额提示；官方未给稳定 schema，做防御性解析
+export async function zhihuQuota(secret) {
+  if (!hasSecret(secret)) return { ok: false, reason: 'no-secret' };
+  const ck = 'quota';
+  const cached = await cacheGet(ck);
+  if (cached) return cached;
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/quota`, { headers: authHeaders(secret), signal: AbortSignal.timeout(10000) });
+    const rawText = await r.text();
+    if (!r.ok) return { ok: false, reason: `HTTP ${r.status}`, raw: rawText.slice(0, 200) };
+    let data;
+    try { data = JSON.parse(rawText); } catch { data = rawText.slice(0, 200); }
+    // 业务码防御（工单 t/12；06 实测 schema：有效={Code:0,Message:"success",Data:[...]}，无效=HTTP 200 + {Code:20001,"Authorization failed",Data:null}）：
+    // HTTP 200 不代表鉴权通过——解析出对象且含数值型（或数字字符串）Code 且 !==0 即业务错误，不得谎报 ok（否则 /api/health reachable 谎报 true）。
+    // Code===0（含 "0"）、无 Code 字段或 Code 非数值 → 保持旧行为。失败结果不写缓存（仅成功才 cacheSet）。
+    if (data && typeof data === 'object' && data.Code !== undefined && data.Code !== null) {
+      const c = data.Code;
+      const numeric = typeof c === 'number'
+        || (typeof c === 'string' && c.trim() !== '' && !Number.isNaN(Number(c)));
+      if (numeric && Number(c) !== 0) {
+        return { ok: false, reason: `business-error Code:${c}`, raw: rawText.slice(0, 200) };
+      }
+    }
+    const result = { ok: true, data };
+    await cacheSet(ck, result, 300);
+    return result;
+  } catch (err) {
+    return { ok: false, reason: err?.message || 'network error' };
+  }
+}
+
+// ---------- 3.5 简历解析（模块③）----------// 输入：简历纯文本（前端已从 PDF/DOCX/TXT 提取）；输出：结构化字段
 // 优先用 StepFun（阶跃星辰）解析，即使没有知乎 Secret 也能真解析；
 // 若 StepFun 也未配置，则回退知乎直答（若有 secret）；都没有则返回失败由前端手动填写
 export async function extractResume(secret, text) {
@@ -221,7 +259,7 @@ ${text.slice(0, 14000)}`;
 
   // 2) 回退：知乎直答（需要知乎 secret）
   if (hasSecret(secret)) {
-    const raw = await zhihuZhida(secret, prompt, 'zhida-fast-1p5', 86400);
+    const raw = await zhihuZhida(secret, prompt, OPENAI_MODEL, 86400);
     if (!raw) return { ok: false, reason: 'llm-empty', fields: {} };
     try {
       const m = raw.match(/\{[\s\S]*\}/);
@@ -239,7 +277,7 @@ ${text.slice(0, 14000)}`;
 // ---------- 4. 判断力炼金包：搜索 + 直答 组合（核心） ----------
 // 多角色对照（B1 伪多 Agent）：单次调用产出多个有独立人设的虚拟答主，各自基于知乎内容给视角并互相质疑。
 // 不综合结论，保留张力；单次调用零额外额度消耗。
-// persona = { identity, industry, sub }（由 personas.js 提供画像文本）
+// persona = { identity, industry, sub }（由前端 src/lib.js 的 personaPayload 提供）
 export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = []) {
   if (!hasSecret(secret)) return MOCK.alchemy(topic, persona); // 演示模式：返回精美示例，保证"打开即完整"
   const pt = (typeof persona === 'string')
@@ -315,10 +353,14 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
 内容：
 ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
 
+  // matchReason 模板用模块级 matchReasonFor（11b 从此处的局部 helper 提升：topicMock 源头也需复用）
+
   const raw = await zhihuZhida(secret, prompt);
   if (!raw || !raw.trim()) {
     console.warn('[alchemy] zhida empty, fallback to mock for', topic);
     const fb = topicMock(topic, pt);
+    // PRD 9.1：兜底三派同样逐 role 补 matchReason（与 <2 roles 补全分支同款模板）
+    (fb.conflict?.roles || []).forEach((r) => { if (!r.matchReason) r.matchReason = matchReasonFor(pt); });
     return { ...fb, mock: false, fallback: true, ...replaceMockSources(fb, items) };
   }
   try {
@@ -328,12 +370,11 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     if (!roles || roles.length < 2) {
       console.warn('[alchemy] zhida returned', roles?.length || 0, 'roles, padding with mock factions for', topic);
       const fb = topicMock(topic, pt);
-      const goalTxt = (pt.goalNames && pt.goalNames.length) ? pt.goalNames.join('、') : '';
       const fallbackRoles = (fb.conflict?.roles || []).map((r, i) => ({
         ...r,
         id: r.id || `r${i + 1}`,
         sourceItems: items.slice((i * 2) % items.length, ((i * 2) % items.length) + 2),
-        matchReason: `匹配你的处境：阶段「${pt.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${pt.industryName ? ' · 行业「' + pt.industryName + '·' + pt.subName + '」' : ''}`,
+        matchReason: matchReasonFor(pt),
       }));
       const existingIds = new Set((roles || []).map((r) => r.id).filter(Boolean));
       const padded = [...(roles || [])];
@@ -410,6 +451,17 @@ function linkSources(roles, items) {
   });
 }
 
+// matchReason 模板（PRD 9.1「推荐 100% 带匹配理由」）：阶段/目标/行业，有城市/时间压力时纳入
+// 11b：从 alchemy 局部 helper 提升到模块级 —— topicMock 源头（DEMO 直达 / catch 分支共用产物）与
+// alchemy 的 !raw / <2 roles 分支复用同款模板；城市/时间以 includes 守卫防重复追加
+const matchReasonFor = (p) => {
+  const goalTxt = (p.goalNames && p.goalNames.length) ? p.goalNames.join('、') : '';
+  let reason = `匹配你的处境：阶段「${p.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${p.industryName ? ' · 行业「' + p.industryName + '·' + p.subName + '」' : ''}`;
+  if (p.city && !reason.includes('城市')) reason += ` · 城市「${p.city}」`;
+  if (p.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${p.timePressure}」`;
+  return reason;
+};
+
 // ---------- Mock 数据（无 Secret 时兜底，保证"打开即完整"） ----------
 const MOCK = {
   search(q) {
@@ -427,7 +479,7 @@ const MOCK = {
     ];
   },
   zhida(p) {
-    return '（未配置 Access Secret，当前为演示模式。配置后将由知乎直答基于真实内容生成。）';
+    return '（未配置 OPENAI_API_KEY，当前为演示模式。配置后将由知乎直答基于真实内容生成。）';
   },
   alchemy(topic, persona = { identityName: '准入行', industryName: 'AI', subName: 'AIGC' }) {
     return topicMock(topic, persona);
@@ -484,10 +536,19 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     author: '知乎社区',
     voteUp: vote || null,
   });
+  // PRD 9.1（11b）：mock 源头即带 matchReason，DEMO 直达 / catch / !raw 三条路径共用产物，一次补齐。
+  // stageName 优先（对齐 alchemy 里 pt.identityName = stageName || ... 的归一化），城市/时间由 helper 守卫防重
+  const matchReason = matchReasonFor({
+    ...persona,
+    identityName: persona.stageName || idName,
+    industryName: ind,
+    subName: sub,
+  });
   const mk = (id, name, stance, arg, bestFor, boundary, s1, s2, reb) => ({
     id, name, form: formOf(name), avatar: '🐻‍❄️',
     persona: `${idName}的${name.replace('刘看山·', '')}：信奉在${ind}·${sub}里靠真功夫说话`,
     stance, coreArg: arg, bestFor, boundary,
+    matchReason,
     sources: ['来源1', '来源2'],
     sourceItems: [mkSrc(s1, 3120), mkSrc(s2, 1800)],
     rebuts: reb,

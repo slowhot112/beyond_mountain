@@ -8,6 +8,17 @@ export async function api(path, opts = {}) {
   return json.data;
 }
 
+// ---------- 热榜灵感（工单03）：统一热榜 fetch 封装 ----------
+// 成功返回 { mock, topics }（topics 为去重后的话题文本数组）；任何失败/超时/空数据都抛错，
+// 调用方（Onboarding）catch 后静默降级——不渲染 chip 区，绝不阻断建档。
+export async function fetchHotTopics(timeoutMs = 6000) {
+  const data = await api('/api/hot', { signal: AbortSignal.timeout(timeoutMs) });
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const topics = [...new Set(items.map((it) => String(it?.title || '').trim()).filter(Boolean))];
+  if (!topics.length) throw new Error('热榜为空');
+  return { mock: !!data.mock, topics };
+}
+
 // ---------- 模块①：处境卡字段定义（对齐 PRD 模块1） ----------
 export const STAGES = [
   { id: 'explore', name: '在校探索' },
@@ -218,23 +229,18 @@ export function recommendTopics() {
   const seen = new Set(h.topics);
   return variants.filter((v) => !seen.has(v)).slice(0, 3);
 }
-// 立场统计：返回按次数降序的数组 + 总数；nameMap 把 role id（r1/r2/r3）解析成真实派别名（如"证书速成派"）
-export function sideStats(nameMap = {}) {
+export function dominantSide() {
   const h = loadHistory();
   const s = h.sides || {};
-  const entries = Object.entries(s)
-    .map(([k, n]) => ({ id: k, name: nameMap[k] || k, n }))
-    .sort((a, b) => b.n - a.n);
-  const total = entries.reduce((a, e) => a + e.n, 0);
-  return { entries, total };
-}
-
-// 用户整体倾向：基于自测点击统计（只展示数据，绝不替用户下结论）
-export function dominantSide(nameMap = {}) {
-  const { entries, total } = sideStats(nameMap);
+  const entries = Object.entries(s).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return null;
-  const top = entries[0];
-  return { label: top.name, id: top.id, n: top.n, total, ratio: total ? top.n / total : 0 };
+  const [topId, topN] = entries[0];
+  const total = entries.reduce((a, [, n]) => a + n, 0);
+  const map = {
+    '刘看山·实干家': '实干家', '刘看山·谋略家': '谋略家', '刘看山·联结者': '联结者',
+    r1: '实干家', r2: '谋略家', r3: '联结者',
+  };
+  return { label: map[topId] || topId, topId, n: topN, total, ratio: total ? topN / total : 0 };
 }
 
 export function actKey(d) { return 'alchemy:actions:' + (d.topic || ''); }
@@ -247,25 +253,9 @@ export function saveActions(d, i, val) {
 }
 
 // 导出 Markdown
-export function exportMd(d, card) {
+export function exportMd(d) {
   let md = `# 知乎炼金术 · 判断力炼金包：${d.topic}\n\n`;
   md += `> 不替你下结论，帮你在知乎众声里炼出自己的判断。由知乎高赞讨论 + 刘看山 AI 炼制。\n\n`;
-  if (card) {
-    const stage = STAGES.find((x) => x.id === card.stage);
-    const goals = (card.goals || []).map((g) => (GOALS.find((x) => x.id === g) || {}).name).filter(Boolean);
-    const ind = INDUSTRIES.find((x) => x.id === card.industry);
-    const custom = card.customIndustry && card.customIndustry.trim();
-    const indName = custom || (ind && ind.name) || card.industry || '';
-    const sub = custom || card.sub || (ind && ind.subs && ind.subs[0]) || '';
-    md += `## 我的处境卡\n`;
-    md += `- 当前阶段：${stage ? stage.name : (card.stage || '（未填）')}\n`;
-    md += `- 目标：${goals.join('、') || '（未填）'}\n`;
-    if (indName) md += `- 行业/领域：${indName}${sub ? ' / ' + sub : ''}\n`;
-    if (card.city) md += `- 目标城市：${card.city}\n`;
-    if (card.timePressure) md += `- 时间压力：${card.timePressure}\n`;
-    if (card.confusion) md += `- 当前最困惑：${card.confusion}\n`;
-    md += `\n`;
-  }
   md += `## 观点对峙墙\n`;
   md += `> ${d.conflict?.summary || ''}\n\n`;
   (d.conflict?.roles || []).forEach((s) => {

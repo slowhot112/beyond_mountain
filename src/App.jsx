@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Landing from './components/Landing.jsx';
 import Onboarding from './components/Onboarding.jsx';
 import PersonaCard from './components/PersonaCard.jsx';
 import ConflictWall from './components/ConflictWall.jsx';
 import Quiz from './components/Quiz.jsx';
 import ActionMap from './components/ActionMap.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
+import QuotaHint from './components/QuotaHint.jsx';
 import {
-  recordTopic, recordSide, dominantSide, sideStats, loadHistory, exportMd, personaPayload, buildQueries, api,
+  recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaPayload, buildQueries, api,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
-import Guide from './components/Guide.jsx';
 
 const MODE = 'live';
 
 export default function App() {
-  const [step, setStep] = useState('guide'); // guide | onboarding | card | result
+  const [step, setStep] = useState('landing'); // landing | onboarding | card | result
   const [card, setCard] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -41,6 +42,19 @@ export default function App() {
       setHealthing(false);
     }
   }
+
+  // 工单05 Finalizer（P1 显示时机）：挂载时自动拉一次 /api/health，额度提示无需手动点「测试连接」。
+  // 适配既有形态：api() 走信封语义，仅当信封 ok===true（LIVE）才 resolve（否则抛错进 catch），
+  // 故 DEMO（ok:false/NO_SECRET）与请求失败均保持 health 原状，DEMO 首屏不出现红色「✗ 未配置」横幅。
+  // 写入形状与 testConnection 成功路径完全一致（{ ok: true, ...data }）；prev ?? 防覆盖手动点击结果；
+  // ignore 旗标防双触发；不设 loading 态。
+  useEffect(() => {
+    let ignore = false;
+    api('/api/health').then((d) => {
+      if (!ignore && d) setHealth((prev) => prev ?? { ok: true, ...d });
+    }).catch(() => {});
+    return () => { ignore = true; };
+  }, []);
 
   useEffect(() => { setHistory(loadHistory()); }, []);
 
@@ -91,11 +105,11 @@ export default function App() {
       if (r.ok && r.fields) {
         setResumeConfirm(r.fields); // 弹出确认/编辑框，用户确认后才写入
       } else if (r.reason === 'no-secret') {
-        setResumeErr(r.message || '服务器未配置 ZHIHU_ACCESS_SECRET，已跳过自动解析，请手动填写背景摘要。');
+        setResumeErr(r.message || '服务器未配置 OPENAI_API_KEY（知乎直答），已跳过自动解析，请手动填写背景摘要。');
       } else if (r.reason === 'empty') {
         setResumeErr('上传内容为空，请检查文件后重试或手动填写。');
       } else if (r.reason === 'llm-empty') {
-        setResumeErr('知乎直答未返回结果，可重试或手动填写背景摘要。');
+        setResumeErr('大模型未返回结果（StepFun / 知乎直答），可重试或手动填写背景摘要。');
       } else {
         setResumeErr('解析未返回结构化结果，已保留文件文字，可手动填写背景摘要。');
       }
@@ -173,29 +187,33 @@ export default function App() {
     setResumeConfirm(null);
   }
 
-  function onQuizAnswer(i, v, side) {
-    if (!data || !side) return;
-    recordSide(side); // 存真实 role id，展示时再映射成派别名
+  function onQuizAnswer(_i, _v, side) {
+    // Quiz 组件已把选项的 side（角色 id，如 r1/r2/r3）作为第三参传出，直接记录即可
+    if (!side) return;
+    recordSide(side);
   }
 
-  const roleNameMap = (data && data.conflict && data.conflict.roles)
-    ? data.conflict.roles.reduce((m, r) => { m[r.id] = r.name; return m; }, {})
-    : {};
-  const stats = sideStats(roleNameMap);
-  const dom = dominantSide(roleNameMap);
+  const dom = dominantSide();
+  const domRole = dom && data ? (data.conflict?.roles || []).find((r) => r.id === dom.topId) : null;
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">山外山 · 知乎炼金术</div>
-        <div className="brand-sub">不替你下结论，帮你在知乎众声里炼出自己的判断</div>
-      </header>
+      {step !== 'landing' && (
+        <header className="topbar">
+          <div className="brand">山外山 · 知乎炼金术</div>
+          <div className="brand-sub">不替你下结论，帮你在知乎众声里炼出自己的判断</div>
+        </header>
+      )}
 
       <main className="container">
         {error && <div className="error">{error}</div>}
 
-        {step === 'guide' && (
-          <Guide onStart={() => setStep('onboarding')} />
+        {step === 'landing' && <Landing onStart={() => setStep('onboarding')} />}
+
+        {step === 'onboarding' && (
+          <div className="back-row">
+            <button className="chip ghost" onClick={() => setStep('landing')}>← 返回引导页</button>
+          </div>
         )}
 
         {step === 'onboarding' && (
@@ -244,22 +262,10 @@ export default function App() {
               <h2>炼金包：{esc0(topic)}</h2>
               <div className="result-actions">
                 <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
-                <button className="chip primary" onClick={() => exportMd(data, card)}>导出 Markdown</button>
+                <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
               </div>
             </div>
-            {stats.total > 0 && (
-              <div className="dominant-bar">
-                <div className="db-title">你的整体倾向（基于 {stats.total} 次自测）</div>
-                <div className="db-track">
-                  {stats.entries.map((e) => (
-                    <div key={e.id} className="db-seg" style={{ width: `${(e.n / stats.total) * 100}%` }} title={`${e.name}：${e.n} 次`}>
-                      <span className="db-name">{e.name}</span>
-                    </div>
-                  ))}
-                </div>
-                {dom && <div className="db-lead">更偏向：<b>{dom.label}</b></div>}
-              </div>
-            )}
+            {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
             <ConflictWall conflict={data.conflict} />
             {data.framework && (
               <section className="card framework">
@@ -280,13 +286,18 @@ export default function App() {
         {health && (
           <span className={`health-msg ${health.ok ? 'ok' : 'bad'}`}>
             {health.ok ? '✓ ' : '✗ '}{health.message}
-            {health.ok && health.raw ? `（返回字段：${health.raw.join(', ')}）` : ''}
+            {health.ok && health.raw != null
+              ? `（额度详情：${typeof health.raw === 'string' ? health.raw : JSON.stringify(health.raw).slice(0, 140)}）`
+              : ''}
           </span>
         )}
+        {/* 工单05：剩余额度常态化提示——复用上方 health state（免费额度接口），自身不发请求 */}
+        <QuotaHint health={health} />
       </div>
 
       <footer className="footer muted">
         内容由知乎高赞讨论 + 刘看山 AI 炼制 · 论点均标注知乎来源 · 本地运行，数据不出本机
+        <div>内容数据源自知乎开放平台 · 刘看山形象版权归知乎所有（完整声明见根目录 NOTICE 文件）</div>
       </footer>
     </div>
   );

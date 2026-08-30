@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Landing from './components/Landing.jsx';
 import Onboarding from './components/Onboarding.jsx';
 import PersonaCard from './components/PersonaCard.jsx';
 import ConflictWall from './components/ConflictWall.jsx';
@@ -13,7 +14,7 @@ import { fileToText, loadSample, extractResume } from './resume.js';
 const MODE = 'live';
 
 export default function App() {
-  const [step, setStep] = useState('onboarding'); // onboarding | card | result
+  const [step, setStep] = useState('landing'); // landing | onboarding | card | result
   const [card, setCard] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -183,13 +184,23 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">山外山 · 知乎炼金术</div>
-        <div className="brand-sub">不替你下结论，帮你在知乎众声里炼出自己的判断</div>
-      </header>
+      {step !== 'landing' && (
+        <header className="topbar">
+          <div className="brand">山外山 · 知乎炼金术</div>
+          <div className="brand-sub">不替你下结论，帮你在知乎众声里炼出自己的判断</div>
+        </header>
+      )}
 
       <main className="container">
         {error && <div className="error">{error}</div>}
+
+        {step === 'landing' && <Landing onStart={() => setStep('onboarding')} />}
+
+        {step === 'onboarding' && (
+          <div className="back-row">
+            <button className="chip ghost" onClick={() => setStep('landing')}>← 返回引导页</button>
+          </div>
+        )}
 
         {step === 'onboarding' && (
           <Onboarding initial={card} onBuildCard={buildCard} history={history} />

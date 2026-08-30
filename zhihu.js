@@ -342,15 +342,7 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
 内容：
 ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
 
-  // matchReason 模板（PRD 9.1「推荐 100% 带匹配理由」）：阶段/目标/行业，有城市/时间压力时纳入
-  // 局部 helper：供 !raw 直答兜底分支与 <2 roles 补全分支复用
-  const matchReasonFor = (p) => {
-    const goalTxt = (p.goalNames && p.goalNames.length) ? p.goalNames.join('、') : '';
-    let reason = `匹配你的处境：阶段「${p.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${p.industryName ? ' · 行业「' + p.industryName + '·' + p.subName + '」' : ''}`;
-    if (p.city && !reason.includes('城市')) reason += ` · 城市「${p.city}」`;
-    if (p.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${p.timePressure}」`;
-    return reason;
-  };
+  // matchReason 模板用模块级 matchReasonFor（11b 从此处的局部 helper 提升：topicMock 源头也需复用）
 
   const raw = await zhihuZhida(secret, prompt);
   if (!raw || !raw.trim()) {
@@ -448,6 +440,17 @@ function linkSources(roles, items) {
   });
 }
 
+// matchReason 模板（PRD 9.1「推荐 100% 带匹配理由」）：阶段/目标/行业，有城市/时间压力时纳入
+// 11b：从 alchemy 局部 helper 提升到模块级 —— topicMock 源头（DEMO 直达 / catch 分支共用产物）与
+// alchemy 的 !raw / <2 roles 分支复用同款模板；城市/时间以 includes 守卫防重复追加
+const matchReasonFor = (p) => {
+  const goalTxt = (p.goalNames && p.goalNames.length) ? p.goalNames.join('、') : '';
+  let reason = `匹配你的处境：阶段「${p.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${p.industryName ? ' · 行业「' + p.industryName + '·' + p.subName + '」' : ''}`;
+  if (p.city && !reason.includes('城市')) reason += ` · 城市「${p.city}」`;
+  if (p.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${p.timePressure}」`;
+  return reason;
+};
+
 // ---------- Mock 数据（无 Secret 时兜底，保证"打开即完整"） ----------
 const MOCK = {
   search(q) {
@@ -522,10 +525,19 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     author: '知乎社区',
     voteUp: vote || null,
   });
+  // PRD 9.1（11b）：mock 源头即带 matchReason，DEMO 直达 / catch / !raw 三条路径共用产物，一次补齐。
+  // stageName 优先（对齐 alchemy 里 pt.identityName = stageName || ... 的归一化），城市/时间由 helper 守卫防重
+  const matchReason = matchReasonFor({
+    ...persona,
+    identityName: persona.stageName || idName,
+    industryName: ind,
+    subName: sub,
+  });
   const mk = (id, name, stance, arg, bestFor, boundary, s1, s2, reb) => ({
     id, name, form: formOf(name), avatar: '🐻‍❄️',
     persona: `${idName}的${name.replace('刘看山·', '')}：信奉在${ind}·${sub}里靠真功夫说话`,
     stance, coreArg: arg, bestFor, boundary,
+    matchReason,
     sources: ['来源1', '来源2'],
     sourceItems: [mkSrc(s1, 3120), mkSrc(s2, 1800)],
     rebuts: reb,

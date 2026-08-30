@@ -28,3 +28,8 @@ lanyard/
 
 # 系统文件
 .DS_Store
+
+# Agent 工具本地工件（matt pocock engineering skills：工单/规格/配置，只存本地不入库）
+.scratch/
+docs/agents/
+AGENTS.md

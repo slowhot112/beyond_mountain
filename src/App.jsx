@@ -94,7 +94,7 @@ export default function App() {
       } else if (r.reason === 'empty') {
         setResumeErr('上传内容为空，请检查文件后重试或手动填写。');
       } else if (r.reason === 'llm-empty') {
-        setResumeErr('知乎直答未返回结果，可重试或手动填写背景摘要。');
+        setResumeErr('大模型未返回结果（StepFun / 知乎直答），可重试或手动填写背景摘要。');
       } else {
         setResumeErr('解析未返回结构化结果，已保留文件文字，可手动填写背景摘要。');
       }
@@ -172,15 +172,14 @@ export default function App() {
     setResumeConfirm(null);
   }
 
-  function onQuizAnswer(i, v) {
-    if (!data) return;
-    const side = typeof v === 'string' && v.includes('实干') ? 'r1'
-      : typeof v === 'string' && v.includes('谋略') ? 'r2'
-      : typeof v === 'string' && v.includes('联结') ? 'r3' : null;
-    if (side) recordSide(side);
+  function onQuizAnswer(_i, _v, side) {
+    // Quiz 组件已把选项的 side（角色 id，如 r1/r2/r3）作为第三参传出，直接记录即可
+    if (!side) return;
+    recordSide(side);
   }
 
   const dom = dominantSide();
+  const domRole = dom && data ? (data.conflict?.roles || []).find((r) => r.id === dom.topId) : null;
 
   return (
     <div className="app">
@@ -241,7 +240,7 @@ export default function App() {
                 <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
               </div>
             </div>
-            {dom && <div className="dominant muted">你偏向：<b>{dom.label}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
+            {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
             <ConflictWall conflict={data.conflict} />
             {data.framework && (
               <section className="card framework">
@@ -262,7 +261,9 @@ export default function App() {
         {health && (
           <span className={`health-msg ${health.ok ? 'ok' : 'bad'}`}>
             {health.ok ? '✓ ' : '✗ '}{health.message}
-            {health.ok && health.raw ? `（返回字段：${health.raw.join(', ')}）` : ''}
+            {health.ok && health.raw != null
+              ? `（额度详情：${typeof health.raw === 'string' ? health.raw : JSON.stringify(health.raw).slice(0, 140)}）`
+              : ''}
           </span>
         )}
       </div>

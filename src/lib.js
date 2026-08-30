@@ -229,7 +229,7 @@ export function dominantSide() {
     '刘看山·实干家': '实干家', '刘看山·谋略家': '谋略家', '刘看山·联结者': '联结者',
     r1: '实干家', r2: '谋略家', r3: '联结者',
   };
-  return { label: map[topId] || topId, n: topN, total, ratio: total ? topN / total : 0 };
+  return { label: map[topId] || topId, topId, n: topN, total, ratio: total ? topN / total : 0 };
 }
 
 export function actKey(d) { return 'alchemy:actions:' + (d.topic || ''); }

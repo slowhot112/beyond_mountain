@@ -174,8 +174,28 @@ export async function zhihuZhida(secret, prompt, model = 'zhida-fast-1p5', ttl =
   }
 }
 
-// ---------- 3.5 简历解析（模块③）----------
-// 输入：简历纯文本（前端已从 PDF/DOCX/TXT 提取）；输出：结构化字段
+// ---------- 3.4 额度查询（免费接口，不消耗直答/热榜额度） ----------
+// 用于 /api/health 健康检查与配额提示；官方未给稳定 schema，做防御性解析
+export async function zhihuQuota(secret) {
+  if (!hasSecret(secret)) return { ok: false, reason: 'no-secret' };
+  const ck = 'quota';
+  const cached = await cacheGet(ck);
+  if (cached) return cached;
+  try {
+    const r = await fetch(`${API_BASE}/api/v1/quota`, { headers: authHeaders(secret), signal: AbortSignal.timeout(10000) });
+    const rawText = await r.text();
+    if (!r.ok) return { ok: false, reason: `HTTP ${r.status}`, raw: rawText.slice(0, 200) };
+    let data;
+    try { data = JSON.parse(rawText); } catch { data = rawText.slice(0, 200); }
+    const result = { ok: true, data };
+    await cacheSet(ck, result, 300);
+    return result;
+  } catch (err) {
+    return { ok: false, reason: err?.message || 'network error' };
+  }
+}
+
+// ---------- 3.5 简历解析（模块③）----------// 输入：简历纯文本（前端已从 PDF/DOCX/TXT 提取）；输出：结构化字段
 // 优先用 StepFun（阶跃星辰）解析，即使没有知乎 Secret 也能真解析；
 // 若 StepFun 也未配置，则回退知乎直答（若有 secret）；都没有则返回失败由前端手动填写
 export async function extractResume(secret, text) {
@@ -239,7 +259,7 @@ ${text.slice(0, 14000)}`;
 // ---------- 4. 判断力炼金包：搜索 + 直答 组合（核心） ----------
 // 多角色对照（B1 伪多 Agent）：单次调用产出多个有独立人设的虚拟答主，各自基于知乎内容给视角并互相质疑。
 // 不综合结论，保留张力；单次调用零额外额度消耗。
-// persona = { identity, industry, sub }（由 personas.js 提供画像文本）
+// persona = { identity, industry, sub }（由前端 src/lib.js 的 personaPayload 提供）
 export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = []) {
   if (!hasSecret(secret)) return MOCK.alchemy(topic, persona); // 演示模式：返回精美示例，保证"打开即完整"
   const pt = (typeof persona === 'string')

@@ -47,6 +47,7 @@
 - **决策：MVP 不做。**
 - 理由：用户拍板"MVP 先不做"。且 ZHIHU-API.md 证实关注流/粉丝接口 CLI 不支持；OAuth 回调需公网 HTTPS，本地跑不通（PRD 第9节风险"高(确定)"）。
 - 待迭代：作为演示可选增强写进"计划借鉴未做"（PRD 8.2(3)）。
+> 2026-08-30：鉴权环境变量命名对齐 OpenAI，见 D-11
 
 ### D-06 "翻面看来源文章"实现方式 `[已确认 2026-08-27]`
 - 要求（用户原话）："我需要的是你的所有论点论据都是有根据（来自于知乎），具体的实现手法无所谓。"
@@ -71,6 +72,11 @@
 - **简历解析链路**：浏览器端为主链路——PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js 懒加载）/ TXT·MD 直读，部署**零 Python 依赖**；`/api/resume` 结构化抽取 **StepFun 优先、知乎直答兜底**（此前模块③进度记录只写"直答抽取"，以本条为准）。`md_server.py`（MarkItDown）定位为**后续拓展模块**：仅覆盖基础文字格式及 xls/ppt/doc 等冷门格式兜底，暂不部署，评委链路不依赖；未来扫描件 OCR 走 `markitdown-ocr` 插件 + 视觉 LLM 或前端"pdfjs 渲染页面 → tesseract"方案。
 - **遗留代码清理**：删除旧版前端页面（`public/index.html` / `app.js` / `styles.css`）、`personas.js`（无引用，内容已在 `src/lib.js`）、`copy_badges.py`（服务于已砍的 3D 工牌）。`server.mjs` 静态服务只托管 `dist/`，未构建时明确 404 提示（消除"静默回退旧版页面"陷阱）。`public/` 仅保留 Vite 静态资源。`/api/hot` 热榜与 OAuth 骨架保留在后端；"热榜灵感"如需在 React 版首屏呈现，作为后续小任务。
 - **健康检查降耗**：`/api/health` 从"跑一次完整炼金"改为调用免费额度接口 `/api/v1/quota`（新增 `zhihu.js#zhihuQuota()`，5 分钟缓存），不再消耗直答 100 次/天 配额，并顺带把剩余额度展示给前端（落地原"配额保护"待办的前半部分）。
+
+### D-11 鉴权与直答环境变量 OpenAI 兼容命名 `[已确认 2026-08-30]`
+- 背景：知乎直答接口本身已是 OpenAI 兼容格式（`POST /v1/chat/completions` + `messages` + `choices[0].message.content`），但鉴权环境变量沿用赛事命名 `ZHIHU_ACCESS_SECRET`，在部署平台与 OpenAI 生态（网关/开发者习惯/通用工具链）中命名不兼容。
+- **决策：直答侧命名对齐 OpenAI——鉴权主名 `OPENAI_API_KEY`，旧名 `ZHIHU_ACCESS_SECRET` 保留为回退（`process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET`）；直答端点参数化为 `OPENAI_BASE_URL`（默认 `https://developer.zhihu.com/v1`，调用 `{OPENAI_BASE_URL}/chat/completions`）、模型参数化为 `OPENAI_MODEL`（默认 `zhida-fast-1p5`），默认值下直答 URL 与模型与现状逐字节一致。热榜/搜索/额度等原生端点（`/api/v1/*`）不受影响，鉴权头（Bearer + X-Request-Timestamp）与缓存/炼金逻辑均不变。**
+- 影响：`docs/DEPLOY.md`（方式一/方式二与环境变量表）、`README.md` 用户文案已同步；`.env` 平滑迁移——旧名仍被回退识别、不迁移也不致断，改配新名即可（MarkItDown `md_server.py` 零改动）。
 
 ---
 
@@ -111,6 +117,7 @@
 | D-08 | 框架对齐 ArguMesh：选 React 即部分对齐 | 已确认 2026-08-27 |
 | D-09 | 定位以山外山 PRD 为准；旧版三文档归档 _archive | 已确认 2026-08-30 |
 | D-10 | 简历解析浏览器端为主（MarkItDown 降后续拓展）；删旧版前端；health 走免费额度接口 | 已确认 2026-08-30 |
+| D-11 | 直答侧命名对齐 OpenAI（OPENAI_API_KEY 主名+旧名回退；OPENAI_BASE_URL/OPENAI_MODEL 参数化） | 已确认 2026-08-30 |
 | 缓存 | 以 PRD 3天/7天为主，双层缓存兼容 API 文档 | 已确认 2026-08-27；`[未实现 2026-08-30]` 缓议 |
 
 ---
@@ -153,3 +160,4 @@
 - 2026-08-27 **修订**：D-01 定为 React；完成 MVP 骨架搭建+构建+接口验证，新增第五、六、七节记录进度（活文档持续迭代）
 - 2026-08-30 **新增 D-09**：定位收束为山外山 PRD，旧版三文档归档 `_archive/`；缓存决策标注未实现缓议
 - 2026-08-30 **新增 D-10**：简历解析浏览器端为主（MarkItDown 降后续拓展）；删除旧版前端与死代码；health 改走免费额度接口
+- 2026-08-30 **新增 D-11**：鉴权与直答环境变量 OpenAI 兼容命名（OPENAI_API_KEY 主名 + 旧名 ZHIHU_ACCESS_SECRET 回退；OPENAI_BASE_URL/OPENAI_MODEL 参数化直答端点与模型，默认值行为不变）

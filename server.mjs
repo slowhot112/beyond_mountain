@@ -24,7 +24,8 @@ function loadEnv() {
 }
 loadEnv();
 
-const SECRET = process.env.ZHIHU_ACCESS_SECRET || '';
+// 鉴权密钥：主名 OPENAI_API_KEY（对齐 OpenAI 生态，见 DECISIONS D-11）；旧名 ZHIHU_ACCESS_SECRET 保留为回退
+const SECRET = process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET || '';
 const PORT = process.env.PORT || 3000;
 const TTL = Number(process.env.CACHE_TTL || 3600);
 // MarkItDown 文档解析服务地址（Python 进程，可选）
@@ -198,7 +199,7 @@ const server = createServer(async (req, res) => {
       if (!body.text || !String(body.text).trim()) return sendJson(res, { ok: false, code: 'EMPTY_TEXT', message: '简历文本为空' }, 400);
       console.log('[server /api/resume] text length:', String(body.text).length, 'secret exists:', !!SECRET);
       if (!SECRET || !SECRET.trim()) {
-        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '服务器未配置 ZHIHU_ACCESS_SECRET，无法调用知乎直答解析简历。可手动填写背景摘要继续使用，或联系管理员配置 API Secret。', data: { reason: 'no-secret', fields: {} } });
+        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '服务器未配置 OPENAI_API_KEY，无法调用知乎直答解析简历。可手动填写背景摘要继续使用，或联系管理员配置 API Key。', data: { reason: 'no-secret', fields: {} } });
       }
       const r = await zhihu.extractResume(SECRET, String(body.text));
       console.log('[server /api/resume] zhihu response ok:', r.ok, 'reason:', r.reason);
@@ -209,10 +210,10 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // ---- 健康检测：验证 ZHIHU_ACCESS_SECRET 是否可用（走免费额度接口，不烧直答 100 次/天配额） ----
+    // ---- 健康检测：验证 OPENAI_API_KEY（旧名 ZHIHU_ACCESS_SECRET 回退）是否可用（走免费额度接口，不烧直答 100 次/天配额） ----
     if (req.method === 'GET' && url.pathname === '/api/health') {
       if (!SECRET || !SECRET.trim()) {
-        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '未配置 ZHIHU_ACCESS_SECRET，请在 .env 中填入。', data: { configured: false } });
+        return sendJson(res, { ok: false, code: 'NO_SECRET', message: '未配置 OPENAI_API_KEY，请在 .env 中填入（旧名 ZHIHU_ACCESS_SECRET 仍兼容）。', data: { configured: false } });
       }
       const q = await zhihu.zhihuQuota(SECRET);
       if (q.ok) {

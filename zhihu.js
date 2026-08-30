@@ -1,5 +1,7 @@
 // 知乎开放平台 API 客户端（含本地缓存 + Mock 兜底）
 // 文档来源：zhihu-hackathon-skill 中的 http-api.md / user-api.md / open-platform.md
+// 知乎直答本身是 OpenAI 兼容接口（POST {OPENAI_BASE_URL}/chat/completions + messages + choices[0].message.content）；
+// 端点/模型可用环境变量 OPENAI_BASE_URL / OPENAI_MODEL 覆盖，默认值即知乎直答现状（命名对齐见 DECISIONS D-11）
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -62,6 +64,10 @@ const hasSecret = (secret) => Boolean(secret && secret.trim());
 const STEPFUN_KEY = process.env.STEPFUN_API_KEY || '';
 const STEPFUN_URL = process.env.STEPFUN_API_URL || 'https://api.stepfun.com/step_plan/v1/chat/completions';
 const STEPFUN_MODEL = process.env.STEPFUN_MODEL || 'step-3.7-flash';
+
+// ---------- 直答端点/模型：OpenAI 兼容命名（DECISIONS D-11），默认值 = 知乎直答现状 ----------
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://developer.zhihu.com/v1';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'zhida-fast-1p5';
 
 async function stepfunChat(prompt, model = STEPFUN_MODEL, ttl = 86400) {
   if (!STEPFUN_KEY || !STEPFUN_KEY.trim()) return '';
@@ -141,14 +147,14 @@ export async function zhihuHot(secret, limit = 30, ttl = 3600) {
   return items;
 }
 
-// ---------- 3. 知乎直答（大模型） ----------
-export async function zhihuZhida(secret, prompt, model = 'zhida-fast-1p5', ttl = 600) {
+// ---------- 3. 知乎直答（大模型，OpenAI 兼容格式：POST {OPENAI_BASE_URL}/chat/completions） ----------
+export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600) {
   if (!hasSecret(secret)) return MOCK.zhida(prompt);
   const ck = `zhida:${model}:${hash(prompt)}`;
   const hit = await cacheGet(ck);
   if (hit) return hit;
   try {
-    const r = await fetch(`${API_BASE}/v1/chat/completions`, {
+    const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: authHeaders(secret),
       signal: AbortSignal.timeout(25000),
@@ -241,7 +247,7 @@ ${text.slice(0, 14000)}`;
 
   // 2) 回退：知乎直答（需要知乎 secret）
   if (hasSecret(secret)) {
-    const raw = await zhihuZhida(secret, prompt, 'zhida-fast-1p5', 86400);
+    const raw = await zhihuZhida(secret, prompt, OPENAI_MODEL, 86400);
     if (!raw) return { ok: false, reason: 'llm-empty', fields: {} };
     try {
       const m = raw.match(/\{[\s\S]*\}/);
@@ -447,7 +453,7 @@ const MOCK = {
     ];
   },
   zhida(p) {
-    return '（未配置 Access Secret，当前为演示模式。配置后将由知乎直答基于真实内容生成。）';
+    return '（未配置 OPENAI_API_KEY，当前为演示模式。配置后将由知乎直答基于真实内容生成。）';
   },
   alchemy(topic, persona = { identityName: '准入行', industryName: 'AI', subName: 'AIGC' }) {
     return topicMock(topic, persona);

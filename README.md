@@ -1,98 +1,66 @@
-# 知乎炼金术 · Zhihu Alchemy
+# 山外山 · 知乎炼金术（Zhihu Alchemy）
 
-> 知乎黑客松 2026「校园新锐季」· **知识炼金场** 赛道参赛作品
-> 把知乎高赞讨论，用 AI 炼成你的知识卡片 · 学习路径 · 自测题。
+> 知乎黑客松 2026「校园新锐季」参赛作品
+> 把知乎上「过来人」的真实求职经验，炼成你的判断与行动。
 
 ---
 
 ## 一句话介绍
 
-输入一个你想搞懂的话题，后端先调用**知乎搜索 API** 拉取真实高赞内容，再交给**知乎直答（大模型）API** 生成结构化学习材料，前端以卡片 / 路径 / 自测题三种形态呈现，并支持一键导出 Markdown 学习地图。
+把知乎上海量的「过来人求职经验」按**用户当下处境**重新组织：AI 从真实高赞讨论中提炼互相冲突的立场，摆成对峙墙，帮你看清分歧、长出判断、落成一步步的行动清单——**不替你下结论**。（产品需求真相见 `docs/山外山PRD.md`）
 
 ## 核心特性
 
-- 🎯 **真实知乎生态**：后端直连官方开放平台 API（搜索 / 热榜 / 直答），非假数据。
-- 🧭 **人群模式**：职场新人 / 在校学生 / 通用，AI 针对性生成不同侧重点的学习方案。
-- 🐻‍❄️ **刘看山 IP 联动**：以知乎官方 IP 作为引导形象，强化社区契合度。
-- ⬇️ **可分享产出**：一键导出学习地图（Markdown），便于传播与攒人气。
-- 🔌 **本地缓存**：自动缓存 API 结果，应对知乎 100 次/天 等频次限制。
-- 🛡️ **多兜底链路**：无 Secret 自动降级演示数据；简历解析支持 MarkItDown 服务 + 浏览器端 pdfjs/tesseract 双兜底，永不白屏。
+- 🧭 **处境卡建档**：7 种求职阶段 × 8 类目标 × 18 个行业（支持自定义）+ 城市选择器 + 时间压力/当前困惑；可选上传简历自动提取字段，**所有 AI 提取结果经用户确认后才使用**，不上传简历也能完整使用。
+- ⚔️ **观点对峙墙**：钢人论证呈现各立场的最强论点（适合谁 / 边界 / 互相质疑），每个论点标注知乎来源，可点回原文（D-06 溯源底线）。
+- 🎯 **判断力自测**：选立场 + 写理由 + 标注确定度，反馈直指认知盲区，而非知识对错。
+- 🚶 **行动地图**：按处境卡生成这周能做的具体小行动，勾选进度本地保存。
+- 🐻‍❄️ **刘看山 IP 联动**：AI 把同一个刘看山分裂成几种行业派别展开交锋，贴合知乎生态。
+- ⬇️ **可分享产出**：一键导出 Markdown（对峙 + 框架 + 自测 + 行动 + 来源）。
+- 🛡️ **多级兜底，永不白屏**：无 Secret 自动走演示数据；直答限流/解析失败回落 Mock 补全（来源仍挂真实搜索结果）；简历解析浏览器端全兜底。
+- 💰 **额度保护**：文件缓存降低调用频次；健康检查走免费额度接口（`/api/v1/quota`），不烧直答 100 次/天 的配额（搜索 5000 次/天、热榜 100 次/天）。
 
 ## 技术架构
 
 ```
 ┌─────────────┐     HTTP      ┌──────────────────┐    Bearer Token    ┌─────────────────┐
 │  浏览器前端   │ ───────────▶ │  Node 轻量后端    │ ─────────────────▶ │ 知乎开放平台 API │
-│ (React+Vite) │ ◀─────────── │ (API 代理+缓存)  │ ◀───────────────── │ 搜索/热榜/直答   │
+│ (React+Vite) │ ◀─────────── │ (静态托管+API代理) │ ◀───────────────── │ 搜索/热榜/直答/额度│
 └─────────────┘    JSON      └──────────────────┘   Secret 仅存后端   └─────────────────┘
                                               │
-                                              ▼ StepFun API（简历结构化）
+                                              ▼ 简历结构化抽取（StepFun 优先，直答兜底）
                                        ┌──────────────────┐
                                        │  阶跃星辰（StepFun） │
                                        └──────────────────┘
 ```
 
-- **前端**：React 18 + Vite 5，组件化；`vite.config.js` 配置开发服务器与代理。
-- **后端**：Node.js（ESM），`server.mjs` 托管静态文件并代理知乎 API；`zhihu.js` 封装鉴权、缓存与三大接口。
-- **简历解析链路**：上传 PDF/DOCX → `md_server.py`（MarkItDown）转纯文本 → StepFun API 抽取结构化字段；前端有 `pdfjs-dist`/`tesseract.js` 浏览器端兜底。
-- **鉴权**：仅需 `Access Secret`（赛事发放），请求头 `Authorization: Bearer <secret>` + `X-Request-Timestamp`，**无需 OAuth**。
-- **缓存**：基于文件系统的极简 TTL 缓存，降低 API 调用频次。
+- **前端**：React 18 + Vite 5，组件化（`src/`）；`vite.config.js` 配置开发代理（`/api` → 3000）。
+- **后端**：Node.js（ESM，零 npm 运行时依赖），`server.mjs` 托管 `dist/` 静态产物并代理知乎 API；`zhihu.js` 封装鉴权、文件缓存与搜索/热榜/直答/额度接口。
+- **简历解析链路（浏览器端为主）**：PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js，懒加载）/ TXT·MD 直读 → `/api/resume` 结构化抽取（StepFun 优先，未配置则知乎直答兜底，均无则提示手动填写）。
+- **鉴权**：仅需赛事发放的 `Access Secret`（请求头 `Authorization: Bearer` + `X-Request-Timestamp`），**无需 OAuth**（OAuth 骨架保留但 MVP 不启用，D-05）。
+- **缓存**：文件系统 TTL 缓存（搜索 1h / 直答 10min / 热榜 1h），降低 API 调用频次。
 
 ## 本地运行
 
 ```bash
-# 1. 安装依赖并启动后端（前端含 React/Vite，后端为 Node 内置模块）
+# 1. 安装依赖并构建前端（后端只托管 dist/，未构建会 404）
 npm install
-npm start                 # 启动 Node 后端（含静态托管），默认 3000 端口
+npm run build
 
-# 2. 新终端：前端开发模式（热更新，默认 5173）
+# 2. 启动 Node 后端（静态托管 + API 代理），默认 3000
+npm start
+
+# 开发模式（可选）：另开终端，Vite 热更新，默认 5173
 npm run dev
-#    或生产构建： npm run build && npm run preview
 ```
 
-> 知乎 API Secret 放在项目根目录 `.env`：`ZHIHU_ACCESS_SECRET=你的密钥`
-> 没有密钥也能跑（自动走 mock 数据，方便演示）。
+> 知乎 API Secret 放在项目根目录 `.env`：`ZHIHU_ACCESS_SECRET=你的密钥`。
+> 没有密钥也能跑（自动走演示数据，方便体验）。
 
 ## 部署（供评委公网访问）
 
-纯静态前端 + 一个 Node 进程，可一键部署到任意支持 Node 的平台（如 CloudBase /  Railway / 腾讯云函数等）。部署后直接提供公网链接即可，符合赛事"网页类项目提供公网 Demo"的要求。
-
-## 接口一览
-
-> 完整 8 条路由（含简历链路 + OAuth）见下方「接口一览（统一 REST 信封）」章节。
-
-| 路由 | 说明 |
-|------|------|
-| `GET /api/health` | 健康检查 + 当前模式（demo/live） |
-| `GET /api/hot` | 知乎热榜（演示/真实） |
-| `GET /api/search?q=` | 知乎搜索 |
-| `GET /api/alchemy?q=&mode=` | 知识炼金主流程（搜索 + 直答） |
-
-## 项目价值（可写进简历）
-
-- 完整的前后端分离全栈实践，理解 HTTP 代理、鉴权头、API 限流与缓存。
-- 真实第三方开放平台（知乎）API 集成经验。
-- 围绕"AI + 真实社区场景"的产品设计思维，而非纯玩具 Demo。
-
-## 简历文档解析（MarkItDown 服务，可选但推荐）
-
-后端 `/api/parse-doc` 会把上传的简历文件转发给本地 **MarkItDown** 服务转成纯文本，
-再交给 LLM 抽取结构化字段。支持 **PDF / Word / Excel / PPT / 图片（含扫描件 OCR）/ HTML / TXT / MD**。
-
-前端已做兜底：若 MarkItDown 服务未启动，会自动回退到浏览器端 `pdfjs-dist` / `tesseract.js` 本地解析。
-
-### 启动步骤（一次性）
-
-```bash
-# 安装 MarkItDown（含 OCR 插件）
-pip install "markitdown[all]"
-
-# 启动解析服务（默认 127.0.0.1:8011）
-python md_server.py
-# 或双击 start-md.bat
-```
-
-> 服务地址可在 Node 端用环境变量覆盖：`MD_SERVICE_URL=http://127.0.0.1:9000 npm start`
+单进程 Node 服务，**Railway / Render 一键部署**，步骤与注意事项见 `docs/DEPLOY.md`。
+⚠️ 部署必须执行 `npm run build` 生成 `dist/`（Railway 会自动构建；Render 需填 Build Command）。
 
 ## 接口一览（统一 REST 信封）
 
@@ -102,11 +70,30 @@ python md_server.py
 
 | 路径 | 方法 | 说明 |
 |------|------|------|
-| `/api/health` | GET | 检测 Secret 是否配置/可达 |
+| `/api/health` | GET | 健康检查（免费额度接口探测，返回剩余额度详情） |
 | `/api/hot` | GET | 知乎热榜 |
 | `/api/search?q=` | GET | 知乎搜索 |
-| `/api/alchemy` | POST / GET | 知识炼金主流程 |
-| `/api/resume` | POST | 简历文本 → 结构化字段（需先有文本） |
-| `/api/parse-doc` | POST | 上传文档 → 纯文本（MarkItDown，需服务已启动） |
-| `/api/oauth/config` | GET | 知乎 OAuth 配置 |
-| `/api/oauth/callback` | GET | 知乎 OAuth 回调 |
+| `/api/alchemy` | POST / GET | 主流程：处境卡检索 + 直答生成对峙/自测/行动 |
+| `/api/resume` | POST | 简历文本 → 结构化字段（StepFun 优先 / 直答兜底） |
+| `/api/parse-doc` | POST | 上传文档 → 纯文本（可选拓展，MarkItDown 服务） |
+| `/api/oauth/config` `/api/oauth/login` `/api/oauth/callback` | GET | OAuth 骨架（MVP 不启用，默认 MOCK） |
+
+## 项目价值（可写进简历）
+
+- 完整的前后端分离全栈实践：React 构建产物托管、HTTP 代理、鉴权头、API 限流与多级缓存。
+- 真实第三方开放平台（知乎）API 集成经验：搜索/直答/额度接口 + 配额保护设计。
+- 围绕「AI + 真实社区场景」的产品设计思维：不替用户定论的判断力训练形态。
+
+## 简历文档解析（MarkItDown，可选拓展）
+
+当前简历解析以**浏览器端**为主链路（PDF / DOCX / 图片 / TXT / MD 全覆盖，部署零 Python 依赖）。
+`md_server.py`（MarkItDown 封装）定位为**后续拓展模块**：仅在浏览器解析不了冷门格式（.doc / .xls / .ppt 等）
+时作为兜底，评委演示链路**不依赖**它；未来如需扫描件 OCR，可加装 `markitdown-ocr` 插件 + 视觉 LLM。
+
+```bash
+# 如需本地启用（一次性）
+pip install "markitdown[all]"
+python md_server.py        # 默认 127.0.0.1:8011；远端部署需 HOST=0.0.0.0（见 docs/DEPLOY.md 方式三）
+```
+
+> 服务地址可用环境变量覆盖：`MD_SERVICE_URL=http://127.0.0.1:9000 npm start`

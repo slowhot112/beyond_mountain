@@ -4,9 +4,10 @@
 > 用途：防止后续开发中出现幻觉、行号错乱、技术栈记错。每次要参考某项目前，先读这个文件。
 
 ### ⚠️ 使用说明（每次新对话先读这 3 个文件，以文件为准，不凭记忆）
-- `DECISIONS.md` —— **已拍板的决策**（技术选型/产品范围），最高优先级
+- `DECISIONS.md` —— **已拍板的决策**（技术选型/产品范围），活文档
 - `ZHIHU-API.md` —— 知乎 API 真实接口/上限/坑
 - `REFERENCE-PROJECTS.md` —— 本文，8 个参考项目真相
+> 优先级：`山外山PRD.md` > 本文 > `ZHIHU-API.md` > `DECISIONS.md`（与 `docs/README.md`、`DECISIONS.md` 头部一致）。
 > 新对话开头可直接复制：「先读 zhihu-alchemy 下的 DECISIONS.md、ZHIHU-API.md、REFERENCE-PROJECTS.md，所有信息以文件为准，不要凭记忆。」
 
 ---
@@ -15,10 +16,10 @@
 
 | 层 | 技术 | 证据 |
 |---|---|---|
-| 后端 | Node.js 原生 `http` 模块（`server.mjs`），零 Web 框架依赖 | `import { createServer } from 'node:http'` |
+| 后端 | Node.js 原生 `http` 模块（`server.mjs`），零 Web 框架依赖，仅托管 `dist/` | `import { createServer } from 'node:http'`；静态回退不再指向 `public/` |
 | 前端 | React 18 + Vite 5 + 原生 CSS（无 UI 库） | `package.json` 含 `react ^18.3.1`、`vite ^5.4.0`、`@vitejs/plugin-react` |
-| AI/数据 | `zhihu.js` 调知乎 API + 文件缓存 + Mock 兜底 + StepFun 简历解析 | `.env.example` 含 `STEPFUN_*` |
-| 启动 | `npm start`（生产/Node 后端）/ `npm run dev`（Vite 热更新） | `package.json` scripts |
+| AI/数据 | `zhihu.js` 调知乎 API（搜索/热榜/直答/额度）+ 文件缓存 + Mock 兜底；简历文本提取浏览器端为主（pdfjs/mammoth/tesseract.js），结构化抽取 StepFun 优先、直答兜底（D-10） | `.env.example` 含 `STEPFUN_*`；`zhihuQuota()` 供 `/api/health` 探测（不烧配额）；`md_server.py` 为后续拓展 |
+| 启动 | `npm run build` 后 `npm start`（生产/Node 后端）/ `npm run dev`（Vite 热更新） | `package.json` scripts；未构建时后端 404 提示 |
 
 **结论**：现为「React + Vite 前端 + Node 原生后端」结构。决策日志 `DECISIONS.md` D-01/D-02 拍板定档（D-01：前端从原生 JS 升 React；D-02：后端保留 Node 原生 http）。
 
@@ -122,15 +123,15 @@
 
 | 模块 | 方式 | 路径 | 日上限 | 我们是否已在用 |
 |---|---|---|---|---|
-| 知乎热榜 | GET | `/api/v1/content/hot_list` | 100 | ✅ `zhihu.js` 第82行 |
-| 站内搜索 | GET | `/api/v1/content/zhihu_search` | 5000 | ✅ `zhihu.js` 第57行 |
+| 知乎热榜 | GET | `/api/v1/content/hot_list` | 100 | ✅ `zhihuHot()` |
+| 站内搜索 | GET | `/api/v1/content/zhihu_search` | 5000 | ✅ `zhihuSearch()` |
 | 全网搜索 | GET | `/api/v1/content/global_search` | 5000 | ❌ 未接 |
-| 直答 Agent | POST | `/v1/chat/completions` | 100 | ✅ `zhihu.js` 第102行 |
+| 直答 Agent | POST | `/v1/chat/completions` | 100 | ✅ `zhihuZhida()` |
 | 关注列表 | GET | `/api/v1/user/followees` | 需认证 | ❌ 未接 |
 | 我的创作 | GET | `/api/v1/user/contents` | 需认证 | ❌ 未接 |
 | 收藏夹列表/内容/最近 | GET | `/api/v1/user/favlists` 等 | 需认证 | ❌ 未接 |
 | 知识库列表/检索/上传 | GET/POST | `/api/v1/knowledge/*` | 需认证 | ❌ 未接 |
-| 额度查询 | GET | `/api/v1/quota` | 免费 | ❌ 未接 |
+| 额度查询 | GET | `/api/v1/quota` | 免费 | ✅ `zhihuQuota()`（/api/health 探测用，不烧配额） |
 
 ### 不可用接口（CLI 不支持，别踩坑）
 
@@ -169,12 +170,12 @@
 
 ---
 
-## 4. 待办：技术架构决策（需用户拍板）
+## 4. 技术架构决策（已全部拍板，见 `DECISIONS.md`，此区仅留档）
 
-- [ ] 前端框架：建议 **React + Vite**（与 ArguMesh 对齐，能直接借鉴组件/状态写法）
-- [ ] 后端：保留现有 Node `server.mjs`，或升级 Hono（对齐 ArguMesh）
-- [ ] 3D 工牌（Three.js）：MVP 建议**砍掉/降级**为静态刘看山引导页，省时间做核心链路
-- [ ] 统一 PRD 第 4 节与第 7 节的技术矛盾
+- [x] 前端框架：**React + Vite**（与 ArguMesh 对齐）→ D-01 `[已确认 2026-08-27]`
+- [x] 后端：保留现有 Node `server.mjs` → D-02 `[已确认 2026-08-27]`
+- [x] 3D 工牌（Three.js）：MVP 砍掉/降级为静态刘看山引导页 → D-03 `[已确认 2026-08-27]`
+- [x] 统一 PRD 第 4 节与第 7 节的技术矛盾 → D-04 `[已确认 2026-08-27]`
 
 ---
 

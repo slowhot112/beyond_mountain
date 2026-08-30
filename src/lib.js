@@ -8,6 +8,17 @@ export async function api(path, opts = {}) {
   return json.data;
 }
 
+// ---------- 热榜灵感（工单03）：统一热榜 fetch 封装 ----------
+// 成功返回 { mock, topics }（topics 为去重后的话题文本数组）；任何失败/超时/空数据都抛错，
+// 调用方（Onboarding）catch 后静默降级——不渲染 chip 区，绝不阻断建档。
+export async function fetchHotTopics(timeoutMs = 6000) {
+  const data = await api('/api/hot', { signal: AbortSignal.timeout(timeoutMs) });
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const topics = [...new Set(items.map((it) => String(it?.title || '').trim()).filter(Boolean))];
+  if (!topics.length) throw new Error('热榜为空');
+  return { mock: !!data.mock, topics };
+}
+
 // ---------- 模块①：处境卡字段定义（对齐 PRD 模块1） ----------
 export const STAGES = [
   { id: 'explore', name: '在校探索' },

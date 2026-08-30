@@ -342,10 +342,22 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
 内容：
 ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
 
+  // matchReason 模板（PRD 9.1「推荐 100% 带匹配理由」）：阶段/目标/行业，有城市/时间压力时纳入
+  // 局部 helper：供 !raw 直答兜底分支与 <2 roles 补全分支复用
+  const matchReasonFor = (p) => {
+    const goalTxt = (p.goalNames && p.goalNames.length) ? p.goalNames.join('、') : '';
+    let reason = `匹配你的处境：阶段「${p.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${p.industryName ? ' · 行业「' + p.industryName + '·' + p.subName + '」' : ''}`;
+    if (p.city && !reason.includes('城市')) reason += ` · 城市「${p.city}」`;
+    if (p.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${p.timePressure}」`;
+    return reason;
+  };
+
   const raw = await zhihuZhida(secret, prompt);
   if (!raw || !raw.trim()) {
     console.warn('[alchemy] zhida empty, fallback to mock for', topic);
     const fb = topicMock(topic, pt);
+    // PRD 9.1：兜底三派同样逐 role 补 matchReason（与 <2 roles 补全分支同款模板）
+    (fb.conflict?.roles || []).forEach((r) => { if (!r.matchReason) r.matchReason = matchReasonFor(pt); });
     return { ...fb, mock: false, fallback: true, ...replaceMockSources(fb, items) };
   }
   try {
@@ -355,12 +367,11 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     if (!roles || roles.length < 2) {
       console.warn('[alchemy] zhida returned', roles?.length || 0, 'roles, padding with mock factions for', topic);
       const fb = topicMock(topic, pt);
-      const goalTxt = (pt.goalNames && pt.goalNames.length) ? pt.goalNames.join('、') : '';
       const fallbackRoles = (fb.conflict?.roles || []).map((r, i) => ({
         ...r,
         id: r.id || `r${i + 1}`,
         sourceItems: items.slice((i * 2) % items.length, ((i * 2) % items.length) + 2),
-        matchReason: `匹配你的处境：阶段「${pt.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${pt.industryName ? ' · 行业「' + pt.industryName + '·' + pt.subName + '」' : ''}`,
+        matchReason: matchReasonFor(pt),
       }));
       const existingIds = new Set((roles || []).map((r) => r.id).filter(Boolean));
       const padded = [...(roles || [])];

@@ -734,3 +734,15 @@ a { color: var(--zhihu); }
   .landing-figure-emoji { font-size: 42px; }
   .landing-title { letter-spacing: 5px; text-indent: 5px; }
 }
+
+/* ---------- 热榜灵感入口（工单03：建档首屏话题 chips，以下均为追加规则） ---------- */
+.hot-inspire { margin-top: 16px; }
+.hot-inspire .onb-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 演示数据标注：沿用 badge-demo / oauth-mock 的琥珀色弱提示语言 */
+.hot-demo-tag {
+  font-size: 11px; font-weight: 600; color: var(--amber);
+  background: #f6ede2; border: 1px solid #e7d3bc;
+  padding: 1px 8px; border-radius: 999px; letter-spacing: .5px;
+}
+/* 热榜话题可能较长：允许换行完整展示（覆盖全局 chip 的单行省略） */
+.hot-inspire .chip { white-space: normal; max-width: 100%; text-align: left; }

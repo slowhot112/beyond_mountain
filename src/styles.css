@@ -746,3 +746,28 @@ a { color: var(--zhihu); }
 }
 /* 热榜话题可能较长：允许换行完整展示（覆盖全局 chip 的单行省略） */
 .hot-inspire .chip { white-space: normal; max-width: 100%; text-align: left; }
+
+/* ---------- 剩余额度常态化提示（工单05：QuotaHint，以下均为追加规则） ---------- */
+/* 数据来自 /api/health 免费额度查询；无 Secret / 查询失败时组件整体不渲染，无需隐藏态样式 */
+.quota-hint {
+  display: inline-flex; align-items: center; gap: 4px 10px; flex-wrap: wrap;
+  font-size: 12px; font-weight: 600; line-height: 1.6;
+  color: var(--zhihu-ink); background: var(--zhihu-soft);
+  border: 1px solid #cfe0da; border-radius: 999px; padding: 2px 10px;
+}
+.quota-hint .quota-item { display: inline-flex; align-items: center; gap: 3px; }
+.quota-hint .quota-item b { font-weight: 700; }
+.quota-hint .quota-other { color: var(--ink-soft); font-weight: 500; }
+/* 防御态：接口连通但额度字段解析不出 → 中性弱提示，不显示任何数字 */
+.quota-hint.quota-opaque {
+  color: var(--muted); background: #f3f5f8; border-color: var(--line); font-weight: 500;
+}
+/* 低额预警：沿用 03 badge-demo / hot-demo-tag 的琥珀色警示语言（#f6ede2 底 / #e7d3bc 边），
+   文字用深琥珀保证小字号下的醒目与对比度；纯提示，不拦截任何按钮/流程 */
+.quota-hint.quota-low { color: #b45309; background: #f6ede2; border-color: #e7d3bc; }
+.quota-hint.quota-low .quota-other { color: #8a6a3d; }
+.quota-hint .quota-warn { font-weight: 700; color: #b45309; letter-spacing: .3px; }
+/* 工单05 走查发现（375px）：LIVE 下 .health-msg 含不可断行的 raw JSON 摘要（既有逻辑），
+   flex 子项 min-width:auto 使其无法收缩 → 整页横向溢出 36px。追加规则允许其任意断行。
+   （QuotaHint 自身 191px 且 flex-wrap 换行正常，非溢出源；此为同区域的最小修复，0 deletions） */
+.health-bar .health-msg { min-width: 0; overflow-wrap: anywhere; }

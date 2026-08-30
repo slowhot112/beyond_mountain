@@ -6,6 +6,7 @@ import ConflictWall from './components/ConflictWall.jsx';
 import Quiz from './components/Quiz.jsx';
 import ActionMap from './components/ActionMap.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
+import QuotaHint from './components/QuotaHint.jsx';
 import {
   recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaPayload, buildQueries, api,
 } from './lib.js';
@@ -277,6 +278,8 @@ export default function App() {
               : ''}
           </span>
         )}
+        {/* 工单05：剩余额度常态化提示——复用上方 health state（免费额度接口），自身不发请求 */}
+        <QuotaHint health={health} />
       </div>
 
       <footer className="footer muted">

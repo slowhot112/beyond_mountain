@@ -194,6 +194,17 @@ export async function zhihuQuota(secret) {
     if (!r.ok) return { ok: false, reason: `HTTP ${r.status}`, raw: rawText.slice(0, 200) };
     let data;
     try { data = JSON.parse(rawText); } catch { data = rawText.slice(0, 200); }
+    // 业务码防御（工单 t/12；06 实测 schema：有效={Code:0,Message:"success",Data:[...]}，无效=HTTP 200 + {Code:20001,"Authorization failed",Data:null}）：
+    // HTTP 200 不代表鉴权通过——解析出对象且含数值型（或数字字符串）Code 且 !==0 即业务错误，不得谎报 ok（否则 /api/health reachable 谎报 true）。
+    // Code===0（含 "0"）、无 Code 字段或 Code 非数值 → 保持旧行为。失败结果不写缓存（仅成功才 cacheSet）。
+    if (data && typeof data === 'object' && data.Code !== undefined && data.Code !== null) {
+      const c = data.Code;
+      const numeric = typeof c === 'number'
+        || (typeof c === 'string' && c.trim() !== '' && !Number.isNaN(Number(c)));
+      if (numeric && Number(c) !== 0) {
+        return { ok: false, reason: `business-error Code:${c}`, raw: rawText.slice(0, 200) };
+      }
+    }
     const result = { ok: true, data };
     await cacheSet(ck, result, 300);
     return result;

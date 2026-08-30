@@ -33,3 +33,6 @@ lanyard/
 .scratch/
 docs/agents/
 AGENTS.md
+
+# playwright-cli 临时产物（open/snapshot 落在 cwd 的 .playwright-cli/，纯本地调试工件）
+.playwright-cli/

@@ -230,12 +230,21 @@ async function runDemoSuite(health) {
 
 // ---------- LIVE 断言集（有 Secret：只打不消耗额度的端点）----------
 async function runLiveSuite(health) {
-  // health：reachable 且带额度详情（额度查询走免费 quota 接口，消耗为 0）
-  check('L-a) /api/health → ok:true, configured:true, reachable:true, raw 额度详情存在',
-    health.status === 200 && health.json?.ok === true
-      && health.json?.data?.configured === true && health.json?.data?.reachable === true
-      && health.json?.data?.raw !== undefined,
-    `status=${health.status} raw=${JSON.stringify(health.json?.data?.raw)?.slice(0, 200)}`);
+  // health：诚实一致性断言（工单 t/12 强化）。依据 06 实测 schema：有效 Secret = Code:0/Message:"success"/Data[]；
+  // 无效 Secret = HTTP 200 + {Code:20001, "Authorization failed", Data:null}（zhihuQuota 旧缺陷曾据此谎报 reachable:true）。
+  // 两种形态都算 PASS：ok:true ⇔ reachable:true 且 raw.Code===0（有效路径）；ok:false ⇔ PROBE_FAILED 且 reachable:false（鉴权失败诚实暴露）。
+  const rawCode = health.json?.data?.raw?.Code;
+  const okBranch = health.json?.ok === true && health.json?.data?.configured === true
+    && health.json?.data?.reachable === true && (rawCode === 0 || rawCode === '0');
+  const failBranch = health.json?.ok === false && health.json?.code === 'PROBE_FAILED'
+    && health.json?.data?.configured === true && health.json?.data?.reachable === false;
+  check('L-a) /api/health 诚实一致性：ok:true ⇔ reachable:true+raw.Code===0；ok:false ⇔ PROBE_FAILED+reachable:false',
+    okBranch || failBranch,
+    okBranch
+      ? `status=${health.status} 有效 Secret 路径：reachable=true raw.Code=${JSON.stringify(rawCode)} raw=${JSON.stringify(health.json?.data?.raw)?.slice(0, 160)}`
+      : failBranch
+        ? `status=${health.status} 鉴权失败诚实暴露：reachable=false message=${JSON.stringify(health.json?.message)?.slice(0, 140)}`
+        : `status=${health.status} 形态非法 body=${health.text.slice(0, 200)}`);
 
   // 本地-only 端点（代码路径不触碰知乎 API，零额度消耗）：
   const resume = await fetchRaw('/api/resume', {

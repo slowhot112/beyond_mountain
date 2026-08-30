@@ -43,6 +43,19 @@ export default function App() {
     }
   }
 
+  // 工单05 Finalizer（P1 显示时机）：挂载时自动拉一次 /api/health，额度提示无需手动点「测试连接」。
+  // 适配既有形态：api() 走信封语义，仅当信封 ok===true（LIVE）才 resolve（否则抛错进 catch），
+  // 故 DEMO（ok:false/NO_SECRET）与请求失败均保持 health 原状，DEMO 首屏不出现红色「✗ 未配置」横幅。
+  // 写入形状与 testConnection 成功路径完全一致（{ ok: true, ...data }）；prev ?? 防覆盖手动点击结果；
+  // ignore 旗标防双触发；不设 loading 态。
+  useEffect(() => {
+    let ignore = false;
+    api('/api/health').then((d) => {
+      if (!ignore && d) setHealth((prev) => prev ?? { ok: true, ...d });
+    }).catch(() => {});
+    return () => { ignore = true; };
+  }, []);
+
   useEffect(() => { setHistory(loadHistory()); }, []);
 
   function buildCard(c) { setCard(c); setStep('card'); }

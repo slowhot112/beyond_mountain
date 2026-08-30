@@ -281,6 +281,7 @@ export default function App() {
 
       <footer className="footer muted">
         内容由知乎高赞讨论 + 刘看山 AI 炼制 · 论点均标注知乎来源 · 本地运行，数据不出本机
+        <div>内容数据源自知乎开放平台 · 刘看山形象版权归知乎所有（完整声明见根目录 NOTICE 文件）</div>
       </footer>
     </div>
   );

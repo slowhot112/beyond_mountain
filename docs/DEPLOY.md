@@ -39,7 +39,7 @@
 ## 环境变量
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `OPENAI_API_KEY` | 否 | 知乎开放平台 Access Secret（OpenAI 兼容命名）。不填 → 演示模式（话题自适应兜底，功能完整）。旧名 `ZHIHU_ACCESS_SECRET` 保留为回退，仍可识别（见 D-11）。 |
+| `OPENAI_API_KEY` | 否 | 知乎开放平台 Access Secret（OpenAI 兼容命名）。不填 → 演示模式（话题自适应兜底，功能完整）。旧名 `ZHIHU_ACCESS_SECRET` 保留为回退，仍可识别（见 D-11）。⚠️ 2026-08-30 实测：当前个人 Secret 为**试用额度**（直答 Total 2 / 热榜 2 / 搜索 10），公网部署前必须换**赛事专用 Secret**（获取途径见 `.env.example` 注释），否则评委几次点击即耗尽直答。 |
 | `OPENAI_BASE_URL` | 否 | 直答端点（OpenAI 兼容），默认 `https://developer.zhihu.com/v1`（知乎直答现状，调用 `{OPENAI_BASE_URL}/chat/completions`）。可指向任意 OpenAI 兼容服务。 |
 | `OPENAI_MODEL` | 否 | 直答模型名，默认 `zhida-fast-1p5`（知乎直答现状）。 |
 | `STEPFUN_API_KEY` | 否 | 阶跃星辰（StepFun）API Key，`/api/resume` 结构化抽取**优先**用它（独立于知乎额度）。不填则回退知乎直答（消耗直答 100 次/天额度），两者都无 → 提示手动填写。 |

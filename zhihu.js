@@ -157,7 +157,8 @@ export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600
     const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: authHeaders(secret),
-      signal: AbortSignal.timeout(25000),
+      // 06 实测 2026-08-30：直答偶发 25s TimeoutError（第 2 次同载荷成功），放宽到 60s 给慢响应留空间（60s 在 Railway/Render 代理限制内）
+      signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
         model,
         stream: false,

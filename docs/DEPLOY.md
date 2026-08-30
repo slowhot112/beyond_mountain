@@ -10,13 +10,13 @@
 1. 注册 https://railway.app ，用 GitHub 登录并连接本仓库。
 2. 新建 Project → Deploy from GitHub repo，选择本仓库。
 3. Railway（nixpacks）会自动执行 `npm install` + `npm run build`（package.json 里有 build 脚本），再跑 `npm start`（或自动识别 `Procfile`）。若自定义了构建流程，请确保 `npm run build` 在启动前完成。
-4. Variables 中可加 `ZHIHU_ACCESS_SECRET`（拿到后填，不填则跑演示模式）。
+4. Variables 中可加 `OPENAI_API_KEY`（拿到后填，不填则跑演示模式；旧名 `ZHIHU_ACCESS_SECRET` 仍兼容，见下表）。
 5. 部署完成会自动给一个公网域名，`PORT` 由平台注入，无需手动设。
 
 ## 方式二：Render
 1. 注册 https://render.com ，New → Web Service，连接 GitHub 仓库。
 2. **Build Command 填 `npm install && npm run build`**（不要留空——留空可能不生成 `dist/`，导致回退旧版页面），Start Command 填 `npm start`。
-3. 同上加 `ZHIHU_ACCESS_SECRET` 环境变量（可选）。
+3. 同上加 `OPENAI_API_KEY` 环境变量（可选；旧名 `ZHIHU_ACCESS_SECRET` 仍兼容）。
 4. 部署后获得 `xxx.onrender.com` 公网地址。
 
 ## 方式三（后续拓展，暂不部署）：Python 文档解析服务（MarkItDown）
@@ -39,7 +39,9 @@
 ## 环境变量
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `ZHIHU_ACCESS_SECRET` | 否 | 知乎开放平台 Access Secret。不填 → 演示模式（话题自适应兜底，功能完整）。 |
+| `OPENAI_API_KEY` | 否 | 知乎开放平台 Access Secret（OpenAI 兼容命名）。不填 → 演示模式（话题自适应兜底，功能完整）。旧名 `ZHIHU_ACCESS_SECRET` 保留为回退，仍可识别（见 D-11）。 |
+| `OPENAI_BASE_URL` | 否 | 直答端点（OpenAI 兼容），默认 `https://developer.zhihu.com/v1`（知乎直答现状，调用 `{OPENAI_BASE_URL}/chat/completions`）。可指向任意 OpenAI 兼容服务。 |
+| `OPENAI_MODEL` | 否 | 直答模型名，默认 `zhida-fast-1p5`（知乎直答现状）。 |
 | `STEPFUN_API_KEY` | 否 | 阶跃星辰（StepFun）API Key，`/api/resume` 结构化抽取**优先**用它（独立于知乎额度）。不填则回退知乎直答（消耗直答 100 次/天额度），两者都无 → 提示手动填写。 |
 | `STEPFUN_API_URL` | 否 | StepFun 端点，默认 `https://api.stepfun.com/step_plan/v1/chat/completions`。 |
 | `STEPFUN_MODEL` | 否 | StepFun 模型名，默认 `step-3.7-flash`。 |

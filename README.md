@@ -54,7 +54,7 @@ npm start
 npm run dev
 ```
 
-> 知乎 API Secret 放在项目根目录 `.env`：`ZHIHU_ACCESS_SECRET=你的密钥`。
+> 知乎 API Secret 放在项目根目录 `.env`：`OPENAI_API_KEY=你的密钥`（旧名 `ZHIHU_ACCESS_SECRET` 仍兼容；直答端点/模型可用 `OPENAI_BASE_URL` / `OPENAI_MODEL` 覆盖，默认即知乎直答）。
 > 没有密钥也能跑（自动走演示数据，方便体验）。
 
 ## 部署（供评委公网访问）

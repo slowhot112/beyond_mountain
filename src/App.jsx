@@ -105,7 +105,7 @@ export default function App() {
       if (r.ok && r.fields) {
         setResumeConfirm(r.fields); // 弹出确认/编辑框，用户确认后才写入
       } else if (r.reason === 'no-secret') {
-        setResumeErr(r.message || '服务器未配置 ZHIHU_ACCESS_SECRET，已跳过自动解析，请手动填写背景摘要。');
+        setResumeErr(r.message || '服务器未配置 OPENAI_API_KEY（知乎直答），已跳过自动解析，请手动填写背景摘要。');
       } else if (r.reason === 'empty') {
         setResumeErr('上传内容为空，请检查文件后重试或手动填写。');
       } else if (r.reason === 'llm-empty') {

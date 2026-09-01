@@ -10,8 +10,6 @@ export default function Landing({ onStart }) {
         <span className="landing-figure-emoji" aria-hidden="true">🦊</span>
         <span className="landing-figure-label" aria-hidden="true">刘看山</span>
       </div>
-      <div className="landing-figure-note">形象占位 · 官方立绘待替换</div>
-
       <h1 className="landing-title">山外山</h1>
       <p className="landing-tagline">山外有山，路在脚下。</p>
 

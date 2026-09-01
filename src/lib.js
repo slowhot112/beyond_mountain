@@ -197,6 +197,11 @@ export function brief(summary) {
   return t.length > 120 ? t.slice(0, 120) + '…' : t;
 }
 
+// 标题归一化用于去重：去掉所有空白和标点，避免"标题?-知乎"和"标题？-知乎"被当作两篇
+export function normTitle(s) {
+  return String(s || '').toLowerCase().replace(/[\s\p{P}]+/gu, '');
+}
+
 // ---------- 本地存储（历史 + 行动进度） ----------
 const HISTORY_KEY = 'alchemy:history';
 export function loadHistory() {

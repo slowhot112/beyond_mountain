@@ -293,8 +293,15 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
   const searchResults = await Promise.allSettled(qs.map((q) => zhihuSearch(secret, q, 4)));
   let items = [];
   searchResults.forEach((r) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) items = items.concat(r.value); });
-  // 去重（按 url/title）
-  const seen = new Set(); items = items.filter((it) => { const k = it.url || it.title; if (seen.has(k)) return false; seen.add(k); return true; });
+  // 去重：同一篇文章可能以不同 url/不同赞数出现多次，按归一化标题保留赞数最高的一条
+  const titleBest = new Map();
+  items.forEach((it) => {
+    const t = normTitle(it.title);
+    if (!t) return;
+    const cur = titleBest.get(t);
+    if (!cur || (it.voteUp || 0) > (cur.voteUp || 0)) titleBest.set(t, it);
+  });
+  items = Array.from(titleBest.values());
   const corpus = items
     .slice(0, 6)
     .map((it, i) => `【来源${i + 1}·${it.voteUp || 0}赞】${it.title}\n${it.summary}`)
@@ -341,84 +348,228 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
     "dimensions": [{"dim": "维度名", "guide": "具体怎么用"}]
   },
   "quiz": [
-    {"scenario": "情境题1：测试第一反应更接近哪一派", "options": [{"label": "选项", "side": "r1"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
-    {"scenario": "情境题2：测试能否识别某派的边界/前提", "options": [{"label": "选项", "side": "r2"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
-    {"scenario": "情境题3：测试能否判断不同角色互驳的漏洞", "options": [{"label": "选项", "side": "r3"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"}
+    {"scenario": "情境题1：直接来自用户最困惑的问题，测试第一反应更接近哪一派", "options": [{"label": "选项", "side": "r1"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
+    {"scenario": "情境题2：识别某派观点的边界/前提，什么时候它不成立", "options": [{"label": "选项", "side": "r2"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
+    {"scenario": "情境题3：判断不同角色互驳时，哪条质疑最有力", "options": [{"label": "选项", "side": "r3"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
+    {"scenario": "情境题4：哪条论据最弱、最依赖未经验证的前提", "options": [{"label": "选项", "side": "r1"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"},
+    {"scenario": "情境题5：在用户的城市/时间压力/背景下，该优先采信哪一派建议", "options": [{"label": "选项", "side": "r2"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"}
   ],
-  "actions": [{"task": "这周能做的1件小事", "why": "为什么有用"}]
+  "actions": [
+    {"task": "今天就能做的1件小事（具体、可验证）", "why": "为什么对当前处境有用"},
+    {"task": "本周内完成的1个信息收集动作（带城市/时间限定）", "why": "为什么能打破信息差"},
+    {"task": "下周前落地的1次真实反馈/验证（可约人、可查数据）", "why": "为什么比空想更有效"}
+  ]
 }
 
-约束：只返回 JSON；roles 2~4 个；每个角色必须有 matchReason 和至少 1 条 sources；rebuts 至少质疑另一角色；内容紧紧围绕该身份与行业。quiz 必须包含 3 道题，分别测：1)第一反应/本能立场；2)边界识别（什么时候某派不成立）；3)互驳判断（哪条质疑最有力）。每题 options 数量与 roles 数量一致，side 用角色 id（r1/r2/r3...），必须有 feedback 和 analysis，不要有 correctSide 这种标准答案字段。
+约束：只返回 JSON；roles 2~4 个；每个角色必须有 matchReason 和至少 1 条 sources；rebuts 至少质疑另一角色；内容紧紧围绕该身份与行业。不同角色引用的 sources 尽量不要重复；若真实来源不足，宁可让角色少引一篇，也不要把同一篇文章硬塞给多个角色。quiz 必须包含 5 道题，分别测：1)第一反应/本能立场；2)边界识别（什么时候某派不成立）；3)互驳判断（哪条质疑最有力）；4)论据可信度（哪条最依赖未验证前提）；5)处境取舍（在目标城市/时间压力/背景下该优先采信谁）。每题 options 数量与 roles 数量一致，side 用角色 id（r1/r2/r3...），必须有 feedback 和 analysis，不要有 correctSide 这种标准答案字段。行动地图必须给出 3~5 条 task，每条必须结合用户的「目标城市 / 时间压力 / 最困惑 / 背景摘要」给出可执行、可验证、带地点与时间限定的具体动作，不要泛泛而谈；时间压力短于一星期时粒度为"2小时内/今天/本周"，一个月左右为"今天/本周/本月"，三个月以上为"本周/本月/三个月内"，未填时间时第一条任务必须是"明确时间窗口"。quiz 第 1 题的情境必须直接来自用户最困惑的问题与真实处境，而非通用话术。
 
 内容：
 ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
 
   // matchReason 模板用模块级 matchReasonFor（11b 从此处的局部 helper 提升：topicMock 源头也需复用）
 
-  const raw = await zhihuZhida(secret, prompt);
-  if (!raw || !raw.trim()) {
-    console.warn('[alchemy] zhida empty, fallback to mock for', topic);
-    const fb = topicMock(topic, pt);
-    // PRD 9.1：兜底三派同样逐 role 补 matchReason（与 <2 roles 补全分支同款模板）
-    (fb.conflict?.roles || []).forEach((r) => { if (!r.matchReason) r.matchReason = matchReasonFor(pt); });
-    return { ...fb, mock: false, fallback: true, ...replaceMockSources(fb, items) };
-  }
-  try {
-    const json = JSON.parse(extractJson(raw));
-    let roles = linkSources(json.conflict?.roles || [], items);
-    // 角色数 2~4 自适应：API 有时不守 prompt 只生成 0~1 个，用本地三派兜底补全到至少 2 个，保证对照墙永远有交锋
-    if (!roles || roles.length < 2) {
-      console.warn('[alchemy] zhida returned', roles?.length || 0, 'roles, padding with mock factions for', topic);
-      const fb = topicMock(topic, pt);
-      const fallbackRoles = (fb.conflict?.roles || []).map((r, i) => ({
-        ...r,
-        id: r.id || `r${i + 1}`,
-        sourceItems: items.slice((i * 2) % items.length, ((i * 2) % items.length) + 2),
-        matchReason: matchReasonFor(pt),
-      }));
-      const existingIds = new Set((roles || []).map((r) => r.id).filter(Boolean));
-      const padded = [...(roles || [])];
-      fallbackRoles.forEach((r) => {
-        if (!existingIds.has(r.id)) { padded.push(r); existingIds.add(r.id); }
-      });
-      roles = padded.slice(0, 4);
-      json.fallback = true; // 标记为兜底，让前端显示提示
+  // 调用直答：最多重试 3 次，提升"角色数达标 + 可解析"的成功率（避免偶发格式错误就退回关键词模板）
+  let json = null;
+  let roles = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const aug = attempt === 0
+      ? prompt
+      : prompt + '\n\n（务必只返回合法 JSON，且 conflict.roles 至少 2 个，每个含 id/name/coreArg/sources/matchReason；不要任何额外文字。）';
+    const r = await zhihuZhida(secret, aug);
+    if (!r || !r.trim()) { console.warn('[alchemy] zhida empty, attempt', attempt); continue; }
+    try {
+      const parsed = JSON.parse(extractJson(r));
+      const rs = linkSources(parsed.conflict?.roles || [], items);
+      if (rs && rs.length >= 2) { json = parsed; roles = rs; break; }
+      console.warn('[alchemy] zhida returned', rs?.length || 0, 'roles, attempt', attempt);
+    } catch (e) {
+      console.warn('[alchemy] zhida parse failed, attempt', attempt);
     }
-    // 角色数超过 4 时截断到 4，避免网格过度换行
-    if (roles.length > 4) roles = roles.slice(0, 4);
-
-    // 保证每个角色都有 matchReason 和至少 1 条来源（100% 可解释性）
-    const goalTxt = (pt.goalNames && pt.goalNames.length) ? pt.goalNames.join('、') : '';
-    roles = roles.map((r, idx) => {
-      const baseReason = `匹配你的处境：阶段「${pt.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${pt.industryName ? ' · 行业「' + pt.industryName + '·' + pt.subName + '」' : ''}`;
-      let reason = r.matchReason || baseReason;
-      if (pt.city && !reason.includes('城市')) reason += ` · 城市「${pt.city}」`;
-      if (pt.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${pt.timePressure}」`;
-      let srcItems = Array.isArray(r.sourceItems) ? r.sourceItems : [];
-      if (!srcItems.length && items.length) {
-        const pair = items.slice((idx * 2) % items.length, ((idx * 2) % items.length) + 2);
-        srcItems = pair.map((it) => ({
-          title: it.title,
-          url: it.url,
-          summary: it.summary,
-          author: it.author,
-          voteUp: it.voteUp,
-        }));
-      }
-      return { ...r, matchReason: reason, sourceItems: srcItems };
-    });
-
-    return {
-      ok: true, mock: false,
-      ...json,
-      conflict: { ...(json.conflict || {}), roles },
-      sources: items.slice(0, 6),
-    };
-  } catch {
-    // LIVE 解析失败（如额度耗尽 / 模型返回异常）：回落到话题自适应兜底，保证评委仍能完整体验
-    const fb = topicMock(topic, pt);
-    return { ...fb, mock: false, fallback: true, ...replaceMockSources(fb, items) };
   }
+
+  // 直答彻底失败：用真实搜索结果兜底（绝不退回关键词模板），保证"依靠知乎真实内容"
+  if (!json) {
+    console.warn('[alchemy] all zhida attempts failed, real-data fallback for', topic);
+    return realDataFallback(items, topic, pt);
+  }
+
+  // 角色数仍 <2：用真实搜索结果补全（而非模板）
+  if (!roles || roles.length < 2) {
+    const realRoles = rolesFromItems(items, pt, roles);
+    const existingIds = new Set((roles || []).map((r) => r.id).filter(Boolean));
+    const padded = [...(roles || [])];
+    realRoles.forEach((r) => { if (!existingIds.has(r.id)) { padded.push(r); existingIds.add(r.id); } });
+    roles = padded.slice(0, 4);
+    json.fallback = true;
+  }
+  // 角色数超过 4，或超过可用真实来源数时截断，避免同一篇文章被多个角色重复引用
+  const maxRoles = Math.max(2, Math.min(4, items.length || 4));
+  if (roles.length > maxRoles) {
+    roles = roles.slice(0, maxRoles);
+    json.lowConfidence = true;
+  }
+
+  // 保证每个角色都有 matchReason 和至少 1 条来源（100% 可解释性）
+  const goalTxt = (pt.goalNames && pt.goalNames.length) ? pt.goalNames.join('、') : '';
+  const usedFallback = new Set();
+  roles = roles.map((r, idx) => {
+    const baseReason = `匹配你的处境：阶段「${pt.identityName}」${goalTxt ? ' · 目标「' + goalTxt + '」' : ''}${pt.industryName ? ' · 行业「' + pt.industryName + '·' + pt.subName + '」' : ''}`;
+    let reason = r.matchReason || baseReason;
+    if (pt.city && !reason.includes('城市')) reason += ` · 城市「${pt.city}」`;
+    if (pt.timePressure && !reason.includes('时间')) reason += ` · 时间窗口「${pt.timePressure}」`;
+    let srcItems = Array.isArray(r.sourceItems) ? r.sourceItems : [];
+    if (!srcItems.length && items.length) {
+      // 尽量给不同角色分配不同来源，减少同一篇文章反复出现
+      const picks = [];
+      const start = idx % items.length;
+      for (let k = 0; k < items.length && picks.length < 2; k++) {
+        const i = (start + k) % items.length;
+        if (!usedFallback.has(i)) {
+          usedFallback.add(i);
+          picks.push(items[i]);
+        }
+      }
+      while (picks.length < 2 && items.length) {
+        picks.push(items[(idx + picks.length) % items.length]);
+      }
+      srcItems = picks.map((it) => ({
+        title: it.title, url: it.url, summary: it.summary, author: it.author, voteUp: it.voteUp,
+      }));
+    }
+    return { ...r, matchReason: reason, sourceItems: srcItems };
+  });
+
+  return {
+    ok: true, mock: false,
+    ...json,
+    conflict: { ...(json.conflict || {}), roles },
+    sources: items.slice(0, 6),
+  };
+}
+
+// 用真实搜索结果构造角色（兜底/补全用，绝不出现关键词模板）
+function rolesFromItems(items, pt, existing = []) {
+  const seed = (existing || []).map((r, i) => ({ ...r, id: r.id || `r${i + 1}` }));
+  const used = new Set(seed.map((r) => r.id));
+  const out = [...seed];
+  (items || []).slice(0, 4).forEach((it, i) => {
+    const id = `r${i + 1}`;
+    if (used.has(id)) return;
+    const titleBrief = briefText(it.title, 50) || '知乎答主';
+    const summaryBrief = briefText(it.summary, 120) || titleBrief;
+    out.push({
+      id,
+      name: titleBrief,
+      form: it.author || '知乎答主',
+      side: '',
+      avatar: '🐻‍❄️',
+      persona: `来自知乎真实讨论：${briefText(it.title, 80)}`,
+      stance: titleBrief,
+      coreArg: summaryBrief,
+      bestFor: '关注该角度真实经验的人',
+      boundary: '代表该答主个人观点，需结合你自己处境判断',
+      matchReason: matchReasonFor(pt),
+      sources: [`来源${i + 1}`],
+      sourceItems: [it],
+      rebuts: [],
+    });
+    used.add(id);
+  });
+  return out;
+}
+
+// 根据处境卡的时间压力，给兜底行动地图排优先级和粒度
+function fallbackActions(topic, pt, rolesLen) {
+  const goalTxt = (pt.goalNames && pt.goalNames.length) ? pt.goalNames.join('、') : '';
+  const city = pt.city || '';
+  const tp = String(pt.timePressure || '').trim();
+  const baseRead = `浏览下面 ${Math.max(1, Math.min(3, rolesLen))} 篇"${topic}"知乎原文，只记录一条与你处境最相关的具体信息`;
+
+  let core = [];
+  if (!tp || tp.match(/暂无|不明|没|不|不确定|^\s*$/)) {
+    // 用户没填时间：先帮他明确时间窗口，再给通用动作
+    core = [
+      { task: `今天花 10 分钟明确你的时间窗口：是 1 周内、1 个月内还是 3 个月以上？写进处境卡`, why: '没有时间压力，行动计划就无法排序；先把这个空补上。' },
+      { task: `今天花 15 分钟${baseRead}`, why: '先把“收藏”变成“记录”，才能进入判断。' },
+      { task: `本周内针对"${topic}"找到 1 个可验证的事实（如岗位 JD/行业报告/薪资数据）`, why: '用一手事实替代泛泛印象，是长判断力的最快方式。' },
+    ];
+  } else if (tp.match(/一\s*周|1\s*周|7\s*天|七\s*天|三\s*天|3\s*天|24\s*小|马上|立|急/)) {
+    core = [
+      { task: `接下来 2 小时内${baseRead}`, why: '时间只剩不到一周，先把信息差补到能下判断的最小单位。' },
+      { task: `今天下班前，用 30 分钟写下"如果必须今晚做决定，我会选哪一派、凭什么"`, why: '极端时间压力下，先逼自己产出判断草稿，再迭代。' },
+      { task: `本周结束前，找到 1 个能验证或推翻你当前偏向的事实（一个电话/一份 JD/一个数据）`, why: '短期决策最怕凭感觉，一手事实比反复纠结有效。' },
+    ];
+  } else if (tp.match(/一\s*月|1\s*月|30\s*天|一\s*个\s*月/)) {
+    core = [
+      { task: `今天花 15 分钟${baseRead}`, why: '先把“收藏”变成“记录”，才能进入判断。' },
+      { task: `本周内做 1 次小范围验证（投 3 份简历 / 约 1 次信息访谈 / 做 1 个最小尝试）`, why: '一个月足够拿到真实反馈，不要只停留在看文章。' },
+      { task: `本月结束前，整理出"适合我"和"不适合我"的两条明确判断标准`, why: '用标准替代感觉，减少最后一周的焦虑。' },
+    ];
+  } else {
+    // 三个月及以上 / 长期
+    core = [
+      { task: `本周内${baseRead}，并标出哪些前提和你的处境最像`, why: '长期窗口下，先建立判断坐标系，再行动。' },
+      { task: `本月内做 1 个为期 2 周的最小尝试（副业 / 课程 / 项目 / 实习）`, why: '三个月以上最值得做的是低成本试错，而不是继续收集文章。' },
+      { task: `三个月内，用这次尝试的反馈决定是否正式转向`, why: '长期目标需要阶段性验收，避免无限拖延。' },
+    ];
+  }
+
+  if (city) {
+    core.push({ task: `在${city}找 1 位正在做"${topic}"相关岗位的人聊 15 分钟`, why: '本地真实反馈比泛泛高赞更贴你处境。' });
+  }
+  return core.slice(0, 5);
+}
+
+// 直答彻底失败时的真实数据兜底：仍返回合法结构，内容全部来自真实知乎搜索
+// export：供 scripts/fallback-check.mjs 做回归断言（长文截断 + 选项数量）
+export function realDataFallback(items, topic, pt) {
+  const roles = rolesFromItems(items, pt);
+  const dims = [
+    { dim: '看高赞但不盲从', guide: '点开下面每篇知乎原文，看高赞答主到底凭什么立论，而非只记结论。' },
+    { dim: '看反对与边界', guide: '专门找和你直觉相反的回答，想想它成立的前提是什么。' },
+    { dim: '看最新一线实践', guide: '优先读近一年的回答，过时的行业判断可能已经变天。' },
+  ];
+  const ref = (roles.length ? roles : [{ id: 'r1', name: '知乎答主' }]).slice(0, 3);
+  const quizTemplates = [
+    { pre: '下面这条真实经验，你的第一反应更接近谁？', fb: '想逼出的盲区：你是在看论证，还是在看立场？' },
+    { pre: '这条经验在什么前提下才成立，超出该前提是否就失效？', fb: '想逼出的盲区：你是否把“特定条件下成立”当成了“普遍真理”？' },
+    { pre: '如果只看反对意见，下面哪条对这条经验的质疑最有力？', fb: '想逼出的盲区：你是否只收集支持自己的证据？' },
+    { pre: '这条经验的结论最依赖哪个未经验证的前提？', fb: '想逼出的盲区：你是否把假设当成了事实？' },
+    { pre: '结合你的城市/时间压力/背景，这条经验对你当前处境的可借鉴度有多高？', fb: '想逼出的盲区：你是否在照搬别人的处境？' },
+  ];
+  const quiz = quizTemplates.map((tpl, i) => {
+    const r = ref[i % ref.length];
+    const titleShort = briefText(r.stance || r.name, 26);
+    const opts = ref.map((role) => ({
+      label: briefText(role.stance || role.name || role.id, 26),
+      side: role.id,
+    }));
+    // 加一个「不确定」选项，让自测不只是二选一
+    opts.push({ label: '不确定 / 还没想清楚', side: null });
+    return {
+      // 题干只给问题 + 文章标题，正文摘要交给「主流观点」卡片，避免题目本身变成一堵墙
+      scenario: `关于"${topic}"，${tpl.pre} 参考《${titleShort}》`,
+      options: opts,
+      prompt: '你更倾向哪一边？',
+      feedback: tpl.fb,
+      analysis: `对照《${r.stance || r.name}》的具体前提再判断。`,
+    };
+  });
+
+  const lowConfidence = (items || []).length < 3;
+  const summary = lowConfidence
+    ? `关于"${topic}"，知乎上直接相关的高赞讨论不多，下面这些内容由相近主题的真实回答兜底——你可以把它们当成“旁听素材”，重点看哪些前提和你处境接近。`
+    : `关于"${topic}"，知乎上有这些真实高赞讨论，看法并不一致——下面直接来自真实回答。`;
+
+  return {
+    ok: true, mock: false, fallback: true, lowConfidence,
+    topic,
+    conflict: { summary, roles },
+    framework: { title: '信谁框架（真实数据兜底）', dimensions: dims },
+    quiz,
+    actions: fallbackActions(topic, pt, roles.length),
+    sources: (items || []).slice(0, 6),
+  };
 }
 
 function extractJson(s) {
@@ -427,17 +578,73 @@ function extractJson(s) {
   return a >= 0 && b >= 0 ? s.slice(a, b + 1) : s;
 }
 
+// 兜底内容摘要：取第一句，防长文直接拍在用户脸上
+function briefText(s, max = 120) {
+  if (!s) return '';
+  const t = String(s).trim().replace(/\s+/g, ' ');
+  const m = t.match(/^[^。！？.!?]{10,120}[。！？.!?]/);
+  if (m) return m[0].slice(0, max);
+  return t.length > max ? t.slice(0, max) + '…' : t;
+}
+
+// 标题归一化（去重用）：去除所有空白和标点，避免"标题?-知乎"与"标题？-知乎"被当作两篇
+function normTitle(s) {
+  return String(s || '').toLowerCase().replace(/[\s\p{P}]+/gu, '');
+}
+
 // 把角色里的"来源N"编号数组映射成真实文章清单（标题/URL/摘要/作者/赞），让每条论点有多篇可点击来源
+// 同一篇文章尽量不被多个角色重复引用：若 LLM 给多个角色都写了"来源1"，后续角色会被分配到未使用的来源；
+// 若所有来源都已占用，宁可让该角色少一篇，也不重复展示同一篇文章。
 function linkSources(roles, items) {
+  const used = new Set();
   return (roles || []).map((r) => {
     const refs = Array.isArray(r.sources) ? r.sources : (r.source ? [r.source] : []);
-    const idxs = refs
+    const rawIdxs = refs
       .map((m) => {
         const mm = String(m).match(/来源\s*(\d+)/);
         return mm ? parseInt(mm[1], 10) - 1 : -1;
       })
       .filter((i) => items[i]);
-    const sourceItems = idxs.map((i) => {
+    const idxs = [];
+    for (const i of rawIdxs) {
+      if (!used.has(i)) {
+        used.add(i);
+        idxs.push(i);
+        continue;
+      }
+      // 该来源已被前面角色占用，找一个还没用的
+      let replaced = false;
+      for (let k = 0; k < items.length; k++) {
+        if (!used.has(k)) {
+          used.add(k);
+          idxs.push(k);
+          replaced = true;
+          break;
+        }
+      }
+      // 全部用光也不再重复，宁可少一篇
+    }
+    // 如果该角色一篇都没分到，从 pool 里补一篇未使用的
+    if (!idxs.length && items.length) {
+      for (let k = 0; k < items.length; k++) {
+        if (!used.has(k)) {
+          used.add(k);
+          idxs.push(k);
+          break;
+        }
+      }
+    }
+    // 同一角色内也可能因 LLM 写重复编号导致重复，按归一化标题去重
+    const deduped = [];
+    const seen = new Set();
+    for (const i of idxs) {
+      const it = items[i];
+      const key = normTitle(it.title) || (it.url || '').trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(i);
+    }
+    const sourceItems = deduped.map((i) => {
       const it = items[i];
       return {
         title: it.title,
@@ -516,6 +723,13 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
   const ind = persona.industryName || 'AI';
   const sub = persona.subName || persona.sub || 'AIGC';
   const idName = persona.identityName || (persona.identity === 'deepen' ? '在职深耕' : persona.identity === 'shift' ? '在职转型' : '准入行');
+  // 真正用到用户处境：目标 / 城市 / 时间压力 / 最困惑 / 简历背景（之前只用了行业派系名，导致"换主题词"观感）
+  const goals = persona.goalNames || [];
+  const goalTxt = goals.join('、');
+  const city = persona.city || '';
+  const timeP = persona.timePressure || '';
+  const confusion = persona.confusion || topic;
+  const edu = persona.education || '';
   // 每个行业的三派（真实存在的冲突立场），mock 兜底用
   const FACTIONS = {
     ai: ['刘看山·算法派', '刘看山·产品派', '刘看山·商业化派'],
@@ -587,14 +801,14 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     framework: {
       title: `信谁框架：在「${ind}·${sub}」里什么情况下该信哪一派`,
       dimensions: [
-        { dim: `你缺的是"项目素材"还是"表达"？`, guide: `毫无经历 → 偏${fk[0]}先动手；有经历但讲不利索 → 偏${fk[1]}先练结构化表达。` },
-        { dim: `这件事在${sub}里是"功能型"还是"方向型"？`, guide: '偏落地执行 → 看技术派开的弹药；偏选择判断 → 听资源派指的方向与真实反馈。' },
-        { dim: '你的时间窗口有多长？', guide: '不足一个月 → 先打磨已有认知；三个月以上 → 值得做一个完整小尝试，同时别忘同步搞信息差。' },
+        { dim: `你缺的是"项目素材"还是"表达"？`, guide: `毫无经历 → 偏${fk[0]}先动手；有经历但讲不利索 → 偏${fk[1]}先练结构化表达。${goalTxt ? `你目标含「${goalTxt}」，表达关迟早要过。` : ''}` },
+        { dim: `这件事在${sub}里是"功能型"还是"方向型"？`, guide: `偏落地执行 → 看${fk[0]}开的弹药；偏选择判断 → 听${fk[2]}指的方向与真实反馈。${goalTxt ? `目标「${goalTxt}」往往更吃方向判断。` : ''}` },
+        { dim: `你的时间窗口有多长？${timeP ? `（你填了：${timeP}）` : ''}`, guide: `不足一个月 → 先打磨已有认知；三个月以上 → 值得做一个完整小尝试，同时别忘同步搞信息差。${city ? `地点在${city}，信息差要本地化。` : ''}` },
       ],
     },
     quiz: [
       {
-        scenario: `作为${idName}的${sub}从业者，有人问你："${topic}，你到底怎么看？" 你第一反应更可能是——`,
+        scenario: `作为${idName}的${sub}从业者` + (city ? `（在${city}）` : '') + `，有人问你："${confusion}，你到底怎么看？" 你第一反应更可能是——`,
         options: [
           { label: `先讲我之前在${sub}里做过的某个真实小尝试`, side: 'r1' },
           { label: `先套一个框架（目标—路径—风险）拆解`, side: 'r2' },
@@ -605,7 +819,7 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
         analysis: `${fk[0]}强调真实成果，${fk[1]}强调结构先行，${fk[2]}强调方向校准。没有绝对正确答案，关键看你当下最缺哪块。`,
       },
       {
-        scenario: `你已经在${sub}里做了一个关于"${topic}"的小尝试，但三个月后发现数据/反馈并不好。这时候你更该——`,
+        scenario: `你已经在${sub}里做了一个关于"${confusion}"的小尝试，但` + (timeP ? `在「${timeP}」的压力下，` : '') + `反馈并不好。这时候你更该——`,
         options: [
           { label: '继续迭代，把坑踩透，用失败换真实体感', side: 'r1' },
           { label: '停下来重新搭框架，看是不是一开始目标就错了', side: 'r2' },
@@ -628,9 +842,9 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
       },
     ],
     actions: [
-      { task: `围绕"${topic}"，在${sub}里找一个真实对象，写下它的 3 个痛点并各给一个改进方案。`, why: '同时练框架拆解 + 输出，检验你到底"听得懂"还是"做得出"。' },
-      { task: `找 1 位${sub}在行的人做 15 分钟信息访谈，只问："你判断${topic}最看重什么？"`, why: '用真实视角校准"该信哪派"，别只在知乎高赞里打转。' },
-      { task: `用 STAR 法准备 1 个关于"${topic}"的${sub}小故事，讲 3 分钟并录下来听一遍。`, why: '把实干家的弹药变成谋略家也能听懂的结构化表达。' },
+      { task: `围绕"${confusion}"，` + (city ? `在${city}的` : '在') + `${sub}里找一个真实对象，写下它的 3 个痛点并各给一个改进方案。`, why: '同时练框架拆解 + 输出，检验你到底"听得懂"还是"做得出"。' },
+      { task: `找 1 位${sub}在行的人做 15 分钟信息访谈` + (city ? `（优先${city}本地）` : '') + `，只问："你判断${confusion}最看重什么？"`, why: '用真实视角校准"该信哪派"，别只在知乎高赞里打转。' },
+      { task: `用 STAR 法准备 1 个关于"${confusion}"的${sub}小故事` + (edu ? `（结合你的背景：${edu.slice(0, 36)}…）` : '') + `，讲 3 分钟并录下来听一遍。`, why: '把实干家的弹药变成谋略家也能听懂的结构化表达。' },
     ],
     sources: MOCK.search(topic),
   };

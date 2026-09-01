@@ -1,23 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { STAGES, GOALS, INDUSTRIES, DEFAULT_CARD, fetchHotTopics } from '../lib.js';
+import React, { useState } from 'react';
+import { STAGES, GOALS, INDUSTRIES, DEFAULT_CARD, personaPayload } from '../lib.js';
 import CityPicker from './CityPicker.jsx';
 
 export default function Onboarding({ initial, onBuildCard, history }) {
   const [card, setCard] = useState(initial || DEFAULT_CARD);
   const [cityOpen, setCityOpen] = useState(false);
-  // 热榜灵感（工单03）：null=未加载或加载失败（静默不渲染区块），成功后为 { mock, topics }
-  const [hot, setHot] = useState(null);
   const ind = INDUSTRIES.find((x) => x.id === card.industry) || INDUSTRIES[0];
   const usingCustom = !!(card.customIndustry && card.customIndustry.trim());
-
-  // 挂载后异步加载热榜，不阻塞首屏；失败静默降级（保持 null，不渲染 chip 区，不阻断建档）
-  useEffect(() => {
-    let alive = true;
-    fetchHotTopics()
-      .then((d) => { if (alive) setHot(d); })
-      .catch(() => { /* 热榜失败 → 整个区块不渲染，建档流程不受影响 */ });
-    return () => { alive = false; };
-  }, []);
 
   function set(patch) { setCard((c) => ({ ...c, ...patch })); }
   function toggleGoal(id) {
@@ -30,6 +19,8 @@ export default function Onboarding({ initial, onBuildCard, history }) {
   }
 
   const canBuild = card.stage && card.goals.length > 0 && (card.industry || card.customIndustry?.trim());
+
+
 
   return (
     <section className="card onb">
@@ -99,20 +90,6 @@ export default function Onboarding({ initial, onBuildCard, history }) {
       <label className="onb-text">时间压力（选填）
         <input type="text" placeholder="如：3个月内 / 秋招前" value={card.timePressure} onChange={(e) => set({ timePressure: e.target.value })} />
       </label>
-
-      {hot && hot.topics.length > 0 && (
-        <div className="onb-block hot-inspire">
-          <div className="onb-label">
-            不知道问什么？从{hot.mock ? '示例话题' : '知乎热榜'}挑一个
-            {hot.mock && <span className="hot-demo-tag">演示数据</span>}
-          </div>
-          <div className="chips">
-            {hot.topics.map((t) => (
-              <button key={t} className="chip" onClick={() => set({ confusion: t })}>{t}</button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <label className="onb-text">当前最困惑的问题（必填，决定检索与对照主题）
         <textarea rows={2} placeholder="例如：AIGC 校招到底卷不卷，我这种背景有没有机会" value={card.confusion} onChange={(e) => set({ confusion: e.target.value })} />

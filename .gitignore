@@ -23,6 +23,11 @@ start-md.bat
 start-port3001.ps1
 start-vite.py
 
+# 本次调试产物（health 接口输出 / 服务错误输出 / 密钥验证脚本，均不入库）
+health_check.txt
+server.err
+verify_key.mjs
+
 # 旁支子项目（工牌图片拷贝脚本相关，非部署所需）
 lanyard/
 

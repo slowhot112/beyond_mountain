@@ -5,17 +5,19 @@ import PersonaCard from './components/PersonaCard.jsx';
 import ConflictWall from './components/ConflictWall.jsx';
 import Quiz from './components/Quiz.jsx';
 import ActionMap from './components/ActionMap.jsx';
+import ResultHub from './components/ResultHub.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
-import QuotaHint from './components/QuotaHint.jsx';
+
+import ResultNav from './components/ResultNav.jsx';
 import {
-  recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaPayload, buildQueries, api,
+  recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
 
 const MODE = 'live';
 
 export default function App() {
-  const [step, setStep] = useState('landing'); // landing | onboarding | card | result
+  const [step, setStep] = useState('landing'); // landing | onboarding | card | result1 | result2 | result3
   const [card, setCard] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -27,34 +29,8 @@ export default function App() {
   const [resumeConfirm, setResumeConfirm] = useState(null); // 解析结果确认弹窗数据
   const [alchemyLoading, setAlchemyLoading] = useState(false);
   const [alchemyStep, setAlchemyStep] = useState('');
-  const [health, setHealth] = useState(null); // 连接诊断
-  const [healthing, setHealthing] = useState(false);
+  const [quizResult, setQuizResult] = useState(null); // 当次自测结果（立场分布 + 盲区），喂给行动地图
   const reqId = useRef(0);
-
-  async function testConnection() {
-    setHealthing(true); setHealth(null);
-    try {
-      const data = await api('/api/health');
-      setHealth({ ok: true, ...data });
-    } catch (e) {
-      setHealth({ ok: false, message: '无法连接后端：' + (e.message || '服务未启动') });
-    } finally {
-      setHealthing(false);
-    }
-  }
-
-  // 工单05 Finalizer（P1 显示时机）：挂载时自动拉一次 /api/health，额度提示无需手动点「测试连接」。
-  // 适配既有形态：api() 走信封语义，仅当信封 ok===true（LIVE）才 resolve（否则抛错进 catch），
-  // 故 DEMO（ok:false/NO_SECRET）与请求失败均保持 health 原状，DEMO 首屏不出现红色「✗ 未配置」横幅。
-  // 写入形状与 testConnection 成功路径完全一致（{ ok: true, ...data }）；prev ?? 防覆盖手动点击结果；
-  // ignore 旗标防双触发；不设 loading 态。
-  useEffect(() => {
-    let ignore = false;
-    api('/api/health').then((d) => {
-      if (!ignore && d) setHealth((prev) => prev ?? { ok: true, ...d });
-    }).catch(() => {});
-    return () => { ignore = true; };
-  }, []);
 
   useEffect(() => { setHistory(loadHistory()); }, []);
 
@@ -63,6 +39,7 @@ export default function App() {
   async function runAlchery() {
     const myId = ++reqId.current;
     setError(null);
+    setQuizResult(null);
     setAlchemyLoading(true);
     setAlchemyStep('正在检索知乎相关讨论…');
     const persona = personaPayload(card);
@@ -80,7 +57,7 @@ export default function App() {
       setData(data);
       recordTopic(topicStr);
       setHistory(loadHistory());
-      setStep('result');
+      setStep('result0'); // 先进总览，由用户选择进入 ②/③/④
     } catch (e) {
       if (myId !== reqId.current) return;
       setError(e.message || '网络错误');
@@ -196,6 +173,19 @@ export default function App() {
   const dom = dominantSide();
   const domRole = dom && data ? (data.conflict?.roles || []).find((r) => r.id === dom.topId) : null;
 
+  function ResultHead({ back }) {
+    return (
+      <div className="result-head">
+        <h2>炼金包：{esc0(topic)}</h2>
+        <div className="result-actions">
+          {back && <button className="chip" onClick={() => setStep('result0')}>← 返回总览</button>}
+          <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
+          <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       {step !== 'landing' && (
@@ -256,49 +246,68 @@ export default function App() {
           </div>
         )}
 
-        {step === 'result' && data && (
+        {step.startsWith('result') && data && (
           <>
-            <div className="result-head">
-              <h2>炼金包：{esc0(topic)}</h2>
-              <div className="result-actions">
-                <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
-                <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
+            <ResultNav
+              current={step}
+              onGoto={(s) => setStep(s)}
+              onEditCard={() => setStep('card')}
+              quizDone={!!dom}
+            />
+            {card && (
+              <div className="persona-strip" aria-label="当前处境">
+                <span className="ps-label">当前处境</span>
+                <span className="ps-chip">{esc0(personaLabel(card))}</span>
+                {card.confusion && <span className="ps-chip">最困惑：{esc0(card.confusion)}</span>}
+                {card.timePressure && <span className="ps-chip">时间压力：{esc0(card.timePressure)}</span>}
               </div>
-            </div>
-            {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
-            <ConflictWall conflict={data.conflict} />
-            {data.framework && (
-              <section className="card framework">
-                <h2>信谁框架</h2>
-                <ul>{data.framework.dimensions.map((x, i) => <li key={i}><b>{x.dim}：</b>{x.guide}</li>)}</ul>
-              </section>
             )}
-            <Quiz quiz={data.quiz} roles={data.conflict?.roles} onAnswer={onQuizAnswer} />
-            <ActionMap data={data} />
+            {data.lowConfidence && (
+              <div className="low-confidence-note">
+                知乎上与你主题直接相关的高赞讨论不多，下面内容由相近主题的真实回答兜底。重点看哪些前提和你的处境接近，而不是照搬结论。
+              </div>
+            )}
+            {step === 'result0' && (
+              <ResultHub data={data} quizDone={!!dom} onGoto={(s) => setStep(s)} />
+            )}
+            {step === 'result1' && (
+              <>
+                <ResultHead back />
+                <ConflictWall conflict={data.conflict} />
+              </>
+            )}
+            {step === 'result2' && (
+              <>
+                <ResultHead back />
+                {data.framework && (
+                  <section className="card framework">
+                    <h2>信谁框架（帮你判断的尺子）</h2>
+                    <p className="muted">带着这把尺子去做下面的自测：它会记下你每题偏向哪一派、哪里还“不确定”——这正是帮你判断的依据。</p>
+                    <ul>{data.framework.dimensions.map((x, i) => <li key={i}><b>{x.dim}：</b>{x.guide}</li>)}</ul>
+                  </section>
+                )}
+                <Quiz
+                  quiz={data.quiz}
+                  roles={data.conflict?.roles}
+                  onAnswer={onQuizAnswer}
+                  onProgress={setQuizResult}
+                  onGotoActions={() => setStep('result3')}
+                />
+              </>
+            )}
+            {step === 'result3' && (
+              <>
+                <ResultHead back />
+                {!dom && <div className="dep-note">请先完成【判断力自测】，才能生成专属你的行动地图。</div>}
+                {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
+                <ActionMap data={data} quizResult={quizResult} />
+              </>
+            )}
           </>
         )}
       </main>
 
-      <div className="health-bar">
-        <button className="chip ghost" onClick={testConnection} disabled={healthing}>
-          {healthing ? '检测中…' : '测试连接'}
-        </button>
-        {health && (
-          <span className={`health-msg ${health.ok ? 'ok' : 'bad'}`}>
-            {health.ok ? '✓ ' : '✗ '}{health.message}
-            {health.ok && health.raw != null
-              ? `（额度详情：${typeof health.raw === 'string' ? health.raw : JSON.stringify(health.raw).slice(0, 140)}）`
-              : ''}
-          </span>
-        )}
-        {/* 工单05：剩余额度常态化提示——复用上方 health state（免费额度接口），自身不发请求 */}
-        <QuotaHint health={health} />
-      </div>
 
-      <footer className="footer muted">
-        内容由知乎高赞讨论 + 刘看山 AI 炼制 · 论点均标注知乎来源 · 本地运行，数据不出本机
-        <div>内容数据源自知乎开放平台 · 刘看山形象版权归知乎所有（完整声明见根目录 NOTICE 文件）</div>
-      </footer>
     </div>
   );
 }

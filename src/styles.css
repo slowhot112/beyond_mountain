@@ -449,6 +449,36 @@ a { color: var(--zhihu); }
 .sources a:hover { text-decoration: underline; }
 .sources .meta { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 
+.source-card {
+  display: grid;
+  cursor: pointer;
+  perspective: 1000px;
+}
+.source-front, .source-back {
+  grid-area: 1 / 1 / 2 / 2;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #f7f6f3;
+  backface-visibility: hidden;
+  transition: transform .35s ease;
+}
+.source-front { transform: rotateY(0); }
+.source-back {
+  transform: rotateY(180deg);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.source-card.flipped .source-front { transform: rotateY(180deg); }
+.source-card.flipped .source-back { transform: rotateY(0); }
+.source-title { font-weight: 700; color: var(--zhihu-ink); font-size: 14px; line-height: 1.45; }
+.source-meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.source-brief { font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
+.source-link { margin-top: 10px; font-weight: 700; color: var(--zhihu); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.source-link:hover { text-decoration: underline; }
+
 /* ---------- error ---------- */
 .error-box {
   margin: 0 0 18px; padding: 15px 17px; border-radius: 12px;
@@ -540,6 +570,54 @@ a { color: var(--zhihu); }
 .result-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
 .result-actions { display: flex; gap: 8px; }
 .dominant { margin: 6px 0 18px; }
+
+/* ---------- 结果页常驻导航（随时改简历卡 + ②③④ 自由切换） ---------- */
+.result-nav {
+  position: sticky; top: 0; z-index: 25;
+  margin: 0 0 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(20, 30, 48, .05);
+}
+.result-nav-inner { display: flex; align-items: center; gap: 14px; padding: 10px 14px; flex-wrap: wrap; }
+.nav-edit { white-space: nowrap; }
+.result-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.result-tab {
+  font-size: 13.5px; padding: 7px 14px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink-soft);
+  cursor: pointer; transition: all .15s; font-family: var(--sans); white-space: nowrap;
+}
+.result-tab:hover { border-color: var(--zhihu); color: var(--zhihu); }
+.result-tab.active { background: var(--zhihu); color: #fff; border-color: var(--zhihu); }
+
+/* 结果页导航：编辑按钮行 */
+.result-nav-top { display: flex; align-items: center; gap: 12px; padding: 10px 14px 0; flex-wrap: wrap; }
+.nav-sub { font-size: 13px; color: var(--muted); }
+.nav-sub b { color: var(--zhihu); }
+
+/* ---------- 逻辑链进度脊（五步主线） ---------- */
+.logic-chain { display: flex; align-items: center; list-style: none; margin: 8px 0 0; padding: 6px 14px 12px; flex-wrap: wrap; }
+.lc-node { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; border: 1px solid transparent; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.lc-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: #eef1f5; color: #8a93a3; border: 1px solid #e0e4ea; transition: all .15s; }
+.lc-label { font-size: 13px; color: var(--ink-soft); }
+.lc-node.done .lc-dot { background: var(--zhihu); color: #fff; border-color: var(--zhihu); }
+.lc-node.done .lc-label { color: var(--ink); }
+.lc-node.current { border-color: var(--zhihu); background: #eef6f2; }
+.lc-node.current .lc-dot { background: var(--zhihu); color: #fff; border-color: var(--zhihu); box-shadow: 0 0 0 3px rgba(0, 132, 255, .14); }
+.lc-node.current .lc-label { color: var(--zhihu); font-weight: 700; }
+.lc-node.upcoming { opacity: .7; }
+.lc-node.locked { cursor: not-allowed; opacity: .55; }
+.lc-warn { font-size: 11px; color: #8a5a00; background: #fdf2dd; padding: 2px 7px; border-radius: 6px; }
+.lc-line { flex: 1 1 16px; height: 2px; min-width: 12px; max-width: 48px; background: #e3e7ed; margin: 0 2px; }
+
+/* ---------- 当前处境摘要条（让“为我而炼”可见） ---------- */
+.persona-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 14px 0 4px; padding: 10px 12px; background: #f7f9fc; border: 1px solid var(--line); border-radius: 12px; }
+.ps-label { font-size: 12px; font-weight: 700; color: var(--muted); }
+.ps-chip { font-size: 12.5px; color: var(--ink-soft); background: #fff; border: 1px solid var(--line-strong); padding: 4px 10px; border-radius: 999px; }
+
+/* 依赖提示 */
+.dep-note { margin: 10px 0; padding: 10px 14px; background: #fff7e8; border: 1px solid #f0d9a8; border-radius: 10px; font-size: 13px; color: #8a5a00; }
 
 /* ---------- footer ---------- */
 .foot {
@@ -668,11 +746,14 @@ a { color: var(--zhihu); }
 /* ---------- 顶部筛选 mega menu（已移除） ---------- */
 
 /* ---------- 观点对峙墙 / 自测 / 行动地图 提质样式 ---------- */
-.role-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.role-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; }
 .role-id { display: flex; align-items: center; gap: 10px; }
 .role-avatar { font-size: 24px; line-height: 1; }
 .role-name { font-weight: 700; font-size: 15px; color: var(--ink); }
 .role-form { font-size: 12px; color: var(--muted); }
+.role-toggle { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.role-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; background: var(--paper); transition: border-color .15s, background .15s; }
+.role-card.active { border-color: var(--zhihu); background: #f8fbfa; }
 .role-stance-box {
   background: #f6f7f9; border-left: 3px solid var(--zhihu); padding: 8px 12px; border-radius: 6px;
   font-weight: 600; color: var(--ink-soft); margin: 8px 0 12px;
@@ -698,6 +779,38 @@ a { color: var(--zhihu); }
 .quiz-analysis { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); color: var(--ink-soft); font-size: 13px; }
 .quiz-summary { margin-top: 14px; padding: 14px 16px; background: #eef3f1; border-radius: 10px; font-size: 14px; color: var(--ink-soft); display: flex; flex-direction: column; gap: 8px; }
 .quiz-blind { padding: 10px 12px; background: var(--zhihu-soft); border-radius: 8px; color: var(--zhihu-ink); }
+/* 自测选项横排 */
+.quiz-opts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+.quiz-opt { flex: 1 1 140px; max-width: 100%; justify-content: center; text-align: center; }
+.quiz-custom-input { display: flex; gap: 8px; margin: 8px 0 4px; }
+.quiz-custom-input input { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+/* 知乎直接相关内容不足时的诚实提示 */
+.low-confidence-note { margin: 8px 0; padding: 10px 12px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px; color: #ad6800; font-size: 13px; line-height: 1.6; }
+/* 长文默认折叠（工单：别把整篇原文拍到用户脸上） */
+.long-text { white-space: pre-wrap; }
+.link-btn { margin-left: 6px; border: none; background: none; padding: 0; color: var(--zhihu); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.link-btn:hover { color: var(--zhihu-ink); }
+.quiz-scenario { line-height: 1.6; }
+.quiz-to-actions { align-self: flex-start; margin-top: 2px; }
+/* 自测 → 行动地图的衔接卡 */
+.action-link { margin: 2px 0 12px; padding: 10px 12px; background: var(--zhihu-soft); border-radius: 8px; color: var(--zhihu-ink); font-size: 13.5px; line-height: 1.6; }
+.action-link-blind { margin-top: 6px; font-size: 12.5px; color: var(--ink-soft); }
+/* 结果页总览：②③④ 三张入口卡 */
+.hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.hub-card { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--paper); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.hub-card:hover { border-color: var(--zhihu); box-shadow: 0 2px 10px rgba(0,0,0,.06); transform: translateY(-2px); }
+.hub-card.locked { opacity: .5; cursor: not-allowed; }
+.hub-card.locked:hover { border-color: var(--line); box-shadow: none; transform: none; }
+.hub-top { display: flex; align-items: center; justify-content: space-between; }
+.hub-no { font-size: 18px; font-weight: 700; color: var(--zhihu); }
+.hub-icon { font-size: 22px; line-height: 1; }
+.hub-title { margin: 2px 0 0; font-size: 16px; font-weight: 700; color: var(--ink); }
+.hub-sub { font-size: 12px; font-weight: 600; color: var(--zhihu); }
+.hub-desc { margin: 0; font-size: 13px; color: var(--ink-soft); line-height: 1.6; flex: 1; }
+.hub-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.hub-meta { font-size: 12px; color: var(--muted); }
+.hub-cta { font-size: 13px; font-weight: 600; color: var(--zhihu); }
+@media (max-width: 720px) { .hub-grid { grid-template-columns: 1fr; } }
 
 .action-progress { font-weight: 600; color: var(--green); margin-left: 8px; }
 .action-list li.done .action-task { text-decoration: line-through; color: var(--muted); }

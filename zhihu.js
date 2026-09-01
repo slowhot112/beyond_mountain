@@ -128,6 +128,42 @@ export async function zhihuSearch(secret, query, count = 10, ttl = 3600) {
   return items;
 }
 
+// ---------- 1.5 全网搜索（补充知乎站内单一来源短板；零额外依赖，额度 5000/天） ----------
+// 返回字段与 zhihuSearch 对齐（title/summary/url/voteUp/...），额外带 source:'web' 便于前端区分；
+// 无 Secret 时返回空数组（不影响 demo，MOCK 走 topicMock 不触接口）。
+export async function zhihuGlobalSearch(secret, query, count = 10, ttl = 3600) {
+  if (!hasSecret(secret)) return [];
+  const ck = `global:${query}:${count}`;
+  const cached = await cacheGet(ck);
+  if (cached) return cached;
+  const url = new URL(`${API_BASE}/api/v1/content/global_search`);
+  url.searchParams.set('Query', query);
+  url.searchParams.set('Count', String(count));
+  try {
+    const r = await fetch(url, { headers: authHeaders(secret), signal: AbortSignal.timeout(15000) });
+    const j = await r.json();
+    const items = (j?.Data?.Items ?? []).map((it) => {
+      const rawUrl = it.Url || it.Link || '';
+      return {
+        title: it.Title,
+        summary: it.ContentText || it.Summary || it.Abstract || '',
+        url: rawUrl || `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(query)}`,
+        voteUp: it.VoteUpCount ?? 0,
+        comment: it.CommentCount ?? 0,
+        authority: it.AuthorityLevel ?? '',
+        author: it.AuthorName || it.Author || '全网来源',
+        type: it.ContentType || 'Web',
+        source: 'web',
+      };
+    });
+    await cacheSet(ck, items, ttl);
+    return items;
+  } catch (err) {
+    console.error('[globalSearch] error', err?.name || err?.message || err);
+    return [];
+  }
+}
+
 // ---------- 2. 知乎热榜 ----------
 export async function zhihuHot(secret, limit = 30, ttl = 3600) {
   if (!hasSecret(secret)) return MOCK.hot();
@@ -288,9 +324,12 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
   pt.industryName = pt.industryName || pt.industry;
   pt.subName = pt.subName || pt.sub;
   const personaPrompt = pt.prompt || `你是「${pt.identityName}」的人，行业「${pt.industryName}」，细分「${pt.subName}」。`;
-  // 模块④：检索词结合处境卡（并发搜索 + 精简语料，减少等待）
+  // 模块④：检索词结合处境卡（站内 + 全网双路并发检索，补知乎单一来源短板；各自 15s 超时，单路失败不影响整体）
   const qs = (queries && queries.length) ? queries.slice(0, 3) : [topic];
-  const searchResults = await Promise.allSettled(qs.map((q) => zhihuSearch(secret, q, 4)));
+  const searchResults = await Promise.allSettled([
+    ...qs.map((q) => zhihuSearch(secret, q, 4)),
+    ...qs.map((q) => zhihuGlobalSearch(secret, q, 4)),
+  ]);
   let items = [];
   searchResults.forEach((r) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) items = items.concat(r.value); });
   // 去重：同一篇文章可能以不同 url/不同赞数出现多次，按归一化标题保留赞数最高的一条
@@ -302,9 +341,13 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
     if (!cur || (it.voteUp || 0) > (cur.voteUp || 0)) titleBest.set(t, it);
   });
   items = Array.from(titleBest.values());
-  const corpus = items
-    .slice(0, 6)
-    .map((it, i) => `【来源${i + 1}·${it.voteUp || 0}赞】${it.title}\n${it.summary}`)
+  // 语料构建：站内按赞数排序取前 4，全网取前 4，合并去重后最多 8 条，保证站内 + 全网双视角都进直答上下文
+  const zhihuItems = items.filter((it) => it.source !== 'web').sort((a, b) => (b.voteUp || 0) - (a.voteUp || 0));
+  const webItems = items.filter((it) => it.source === 'web');
+  const corpusPool = [...zhihuItems.slice(0, 4), ...webItems.slice(0, 4)];
+  const corpus = corpusPool
+    .slice(0, 8)
+    .map((it, i) => `【来源${i + 1}·${it.source === 'web' ? '全网' : (it.voteUp || 0) + '赞'}】${it.title}\n${it.summary}`)
     .join('\n\n');
 
   const contextLines = [
@@ -443,7 +486,8 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     ok: true, mock: false,
     ...json,
     conflict: { ...(json.conflict || {}), roles },
-    sources: items.slice(0, 6),
+    // 来源清单也做站内 + 全网混合，让前端"来源区"直观体现全网搜已接入
+    sources: [...zhihuItems.slice(0, 3), ...webItems.slice(0, 3)].slice(0, 6),
   };
 }
 

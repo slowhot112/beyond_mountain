@@ -57,7 +57,7 @@ npm run dev
 > 知乎 API Secret 放在项目根目录 `.env`：`OPENAI_API_KEY=你的密钥`（旧名 `ZHIHU_ACCESS_SECRET` 仍兼容；直答端点/模型可用 `OPENAI_BASE_URL` / `OPENAI_MODEL` 覆盖，默认即知乎直答）。
 > 没有密钥也能跑（自动走演示数据，方便体验）。
 
-## 部署（供评委公网访问）
+## 部署
 
 单进程 Node 服务，**Railway / Render 一键部署**，步骤与注意事项见 `docs/DEPLOY.md`。
 ⚠️ 部署必须执行 `npm run build` 生成 `dist/`（Railway 会自动构建；Render 需填 Build Command）。
@@ -78,13 +78,13 @@ npm run dev
 | `/api/parse-doc` | POST | 上传文档 → 纯文本（可选拓展，MarkItDown 服务） |
 | `/api/oauth/config` `/api/oauth/login` `/api/oauth/callback` | GET | OAuth 骨架（MVP 不启用，默认 MOCK） |
 
-## 项目价值（可写进简历）
+## 项目价值
 
 - 完整的前后端分离全栈实践：React 构建产物托管、HTTP 代理、鉴权头、API 限流与多级缓存。
 - 真实第三方开放平台（知乎）API 集成经验：搜索/直答/额度接口 + 配额保护设计。
 - 围绕「AI + 真实社区场景」的产品设计思维：不替用户定论的判断力训练形态。
 
-## 简历文档解析（MarkItDown，可选拓展）
+## 简历文档解析
 
 当前简历解析以**浏览器端**为主链路（PDF / DOCX / 图片 / TXT / MD 全覆盖，部署零 Python 依赖）。
 `md_server.py`（MarkItDown 封装）定位为**后续拓展模块**：仅在浏览器解析不了冷门格式（.doc / .xls / .ppt 等）

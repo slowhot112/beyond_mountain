@@ -9,8 +9,10 @@ import ResultHub from './components/ResultHub.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
 
 import ResultNav from './components/ResultNav.jsx';
+import SpiritGuide from './components/SpiritGuide.jsx';
 import {
   recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
+  saveRecord, loadRecords, updateRecordQuiz,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
 
@@ -22,6 +24,7 @@ export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState(loadHistory());
+  const [records, setRecords] = useState(loadRecords()); // 历史炼金包（完整存档，点开可回看）
   const [topic, setTopic] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeErr, setResumeErr] = useState(null);
@@ -31,8 +34,9 @@ export default function App() {
   const [alchemyStep, setAlchemyStep] = useState('');
   const [quizResult, setQuizResult] = useState(null); // 当次自测结果（立场分布 + 盲区），喂给行动地图
   const reqId = useRef(0);
+  const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
 
-  useEffect(() => { setHistory(loadHistory()); }, []);
+  useEffect(() => { setHistory(loadHistory()); setRecords(loadRecords()); }, []);
 
   function buildCard(c) { setCard(c); setStep('card'); }
 
@@ -41,12 +45,17 @@ export default function App() {
     setError(null);
     setQuizResult(null);
     setAlchemyLoading(true);
-    setAlchemyStep('正在检索知乎相关讨论…');
+    const steps = ['正在知乎山头拾脚印…', '正在全网找对照脚印…', '正在把不同脚印摆成对照…', '正在给你画脚下验证路线…'];
+    let stepIdx = 0;
+    setAlchemyStep(steps[0]);
+    const stepTimer = setInterval(() => {
+      stepIdx = (stepIdx + 1) % steps.length;
+      setAlchemyStep(steps[stepIdx]);
+    }, 2200);
     const persona = personaPayload(card);
     const topicStr = card.confusion.trim();
     setTopic(topicStr);
     try {
-      setTimeout(() => setAlchemyStep('正在让不同角色互相交锋…'), 2500);
       const data = await api('/api/alchemy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,11 +66,15 @@ export default function App() {
       setData(data);
       recordTopic(topicStr);
       setHistory(loadHistory());
+      const rec = saveRecord({ card, data, quiz: null }); // 生成成功即自动存档，之后可完整回看
+      if (rec) currentRecordId.current = rec.id;
+      setRecords(loadRecords());
       setStep('result0'); // 先进总览，由用户选择进入 ②/③/④
     } catch (e) {
       if (myId !== reqId.current) return;
       setError(e.message || '网络错误');
     } finally {
+      clearInterval(stepTimer);
       setAlchemyLoading(false);
       setAlchemyStep('');
     }
@@ -170,13 +183,31 @@ export default function App() {
     recordSide(side);
   }
 
+  // 答完自测后把结果写回「当前正在看的那条」存档（按 id 定位，不会串到别的存档）
+  useEffect(() => {
+    if (quizResult && quizResult.answeredCount > 0 && currentRecordId.current) {
+      updateRecordQuiz(currentRecordId.current, quizResult);
+    }
+  }, [quizResult]);
+
+  // 打开某条历史存档：把当时的处境卡与结果一起还原，像回到那天
+  function openRecord(rec) {
+    if (!rec || !rec.data) return;
+    currentRecordId.current = rec.id;
+    setCard(rec.card || null);
+    setData(rec.data);
+    setTopic(rec.topic || rec.data.topic || '');
+    setQuizResult(rec.quiz || null);
+    setStep('result0');
+  }
+
   const dom = dominantSide();
   const domRole = dom && data ? (data.conflict?.roles || []).find((r) => r.id === dom.topId) : null;
 
   function ResultHead({ back }) {
     return (
       <div className="result-head">
-        <h2>炼金包：{esc0(topic)}</h2>
+        <h2>山径图：{esc0(topic)}</h2>
         <div className="result-actions">
           {back && <button className="chip" onClick={() => setStep('result0')}>← 返回总览</button>}
           <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
@@ -190,19 +221,27 @@ export default function App() {
     <div className="app">
       {step !== 'landing' && (
         <header className="topbar">
-          <div className="brand">山外山 · 知乎炼金术</div>
-          <div className="brand-sub">不替你下结论，帮你在知乎众声里炼出自己的判断</div>
+          <div className="brand">山外山</div>
+          <div className="brand-sub">不替你选路，只把众声摆成你能看清的山势</div>
         </header>
       )}
 
       <main className="container">
         {error && <div className="error">{error}</div>}
 
-        {step === 'landing' && <Landing onStart={() => setStep('onboarding')} />}
+        {step === 'landing' && (
+          <Landing
+            onStart={() => setStep('onboarding')}
+            records={records}
+            onOpen={openRecord}
+            />
+        )}
+
+        <SpiritGuide records={records} currentData={data} step={step} topic={topic} />
 
         {step === 'onboarding' && (
           <div className="back-row">
-            <button className="chip ghost" onClick={() => setStep('landing')}>← 返回引导页</button>
+            <button className="chip ghost" onClick={() => setStep('landing')}>← 返回山脚</button>
           </div>
         )}
 
@@ -223,6 +262,7 @@ export default function App() {
               input.click();
             }}
             onPasteResume={handlePastedResume}
+            onLoadSample={handleSample}
             resumeLoading={resumeLoading}
             ocrProgress={ocrProgress}
             alchemyLoading={alchemyLoading}
@@ -238,12 +278,6 @@ export default function App() {
             onConfirm={applyResumeFields}
             onCancel={() => setResumeConfirm(null)}
           />
-        )}
-
-        {step === 'card' && (
-          <div className="sample-row">
-            <button className="chip ghost" onClick={handleSample} disabled={resumeLoading}>载入内置样例简历（演示）</button>
-          </div>
         )}
 
         {step.startsWith('result') && data && (
@@ -273,7 +307,7 @@ export default function App() {
             {step === 'result1' && (
               <>
                 <ResultHead back />
-                <ConflictWall conflict={data.conflict} />
+                <ConflictWall conflict={data.conflict} onNext={() => setStep('result2')} />
               </>
             )}
             {step === 'result2' && (
@@ -281,8 +315,8 @@ export default function App() {
                 <ResultHead back />
                 {data.framework && (
                   <section className="card framework">
-                    <h2>信谁框架（帮你判断的尺子）</h2>
-                    <p className="muted">带着这把尺子去做下面的自测：它会记下你每题偏向哪一派、哪里还“不确定”——这正是帮你判断的依据。</p>
+                    <h2>辨山尺（判断该信谁）</h2>
+                    <p className="muted">带着这把尺子去下面的辨向自测：它会记下你每题偏向哪一派、哪里还“不确定”——正是你此刻最该看清的山势。</p>
                     <ul>{data.framework.dimensions.map((x, i) => <li key={i}><b>{x.dim}：</b>{x.guide}</li>)}</ul>
                   </section>
                 )}
@@ -298,9 +332,9 @@ export default function App() {
             {step === 'result3' && (
               <>
                 <ResultHead back />
-                {!dom && <div className="dep-note">请先完成【判断力自测】，才能生成专属你的行动地图。</div>}
+                {!dom && <div className="dep-note">请先完成【辨向自测】，才能生成专属你的脚下三步。</div>}
                 {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
-                <ActionMap data={data} quizResult={quizResult} />
+                <ActionMap data={data} quizResult={quizResult} persona={card} />
               </>
             )}
           </>

@@ -24,11 +24,11 @@ export default function Onboarding({ initial, onBuildCard, history }) {
 
   return (
     <section className="card onb">
-      <h2>① 先告诉我你的处境（建档）</h2>
-      <p className="muted">选得越准，炼出的判断越贴你。不上传简历也能完整使用。行业和领域都能自己写。</p>
+      <h2>① 标记你的位置</h2>
+      <p className="muted">坐标越准，拾到的脚印越贴你。不上传简历也能完整使用；行业和领域都能自己写。</p>
 
       <div className="onb-block">
-        <div className="onb-label">当前阶段（单选）</div>
+        <div className="onb-label">你现在在哪段山路上</div>
         <div className="chips">
           {STAGES.map((s) => (
             <button key={s.id} className={`chip${card.stage === s.id ? ' on' : ''}`} onClick={() => set({ stage: s.id })}>{s.name}</button>
@@ -37,7 +37,7 @@ export default function Onboarding({ initial, onBuildCard, history }) {
       </div>
 
       <div className="onb-block">
-        <div className="onb-label">当前目标（可多选，或选“暂未明确”）</div>
+        <div className="onb-label">想朝哪个方向走（可多选，或选“暂未明确”）</div>
         <div className="chips">
           {GOALS.map((g) => (
             <button key={g.id} className={`chip${card.goals.includes(g.id) ? ' on' : ''}`} onClick={() => toggleGoal(g.id)}>{g.name}</button>
@@ -46,7 +46,7 @@ export default function Onboarding({ initial, onBuildCard, history }) {
       </div>
 
       <div className="onb-grid">
-        <label>行业{usingCustom ? <span className="custom-hint">（已用下方自定义，此栏不生效）</span> : ''}
+        <label>所在山头{usingCustom ? <span className="custom-hint">（已用下方自定义，此栏不生效）</span> : ''}
           {usingCustom ? (
             <select value="__custom__" disabled>
               <option value="__custom__">无</option>
@@ -71,14 +71,14 @@ export default function Onboarding({ initial, onBuildCard, history }) {
       </div>
 
       <label className="onb-text" style={{ marginTop: 10 }}>
-        或自己填写行业/领域（不区分行业与细分，填写后优先使用）
+        或自己填写山头（不区分行业与细分，填写后优先使用）
         <input type="text" placeholder="如：半导体 / 心理咨询 / 射频工程师 / 婚恋咨询"
           value={card.customIndustry || ''}
           onChange={(e) => set({ customIndustry: e.target.value })} />
       </label>
 
       <div className="onb-block" style={{ marginTop: 16 }}>
-        <div className="onb-label">目标城市（选填，精确到市）</div>
+        <div className="onb-label">想在哪个城市落脚（选填，精确到市）</div>
         <div className="city-select-row">
           <button className="chip" onClick={() => setCityOpen(true)}>
             {card.city || '+ 选择城市'}
@@ -87,11 +87,11 @@ export default function Onboarding({ initial, onBuildCard, history }) {
         </div>
       </div>
 
-      <label className="onb-text">时间压力（选填）
+      <label className="onb-text">还有多久必须做决定（选填）
         <input type="text" placeholder="如：3个月内 / 秋招前" value={card.timePressure} onChange={(e) => set({ timePressure: e.target.value })} />
       </label>
 
-      <label className="onb-text">当前最困惑的问题（必填，决定检索与对照主题）
+      <label className="onb-text">你站在哪个路口（必填，决定山外山去哪些山头拾脚印）
         <textarea rows={2} placeholder="例如：AIGC 校招到底卷不卷，我这种背景有没有机会" value={card.confusion} onChange={(e) => set({ confusion: e.target.value })} />
       </label>
 
@@ -101,9 +101,9 @@ export default function Onboarding({ initial, onBuildCard, history }) {
 
       <div className="onb-actions">
         <button className="primary" disabled={!canBuild || !card.confusion.trim()} onClick={() => onBuildCard(card)}>
-          生成处境卡 →
+          生成我的山径图 →
         </button>
-        {!card.confusion.trim() && <span className="muted">请先填写“当前最困惑的问题”</span>}
+        {!card.confusion.trim() && <span className="muted">请先填写“你站在哪个路口”</span>}
       </div>
 
       {history?.topics?.length > 0 && (

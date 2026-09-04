@@ -1,9 +1,9 @@
 import React from 'react';
 
-// 炼金主线：处境卡 → 炼金包（总览）→ 主流观点 → 判断力自测（含信谁框架）→ 行动地图
+// 观山主线：处境卡 → 观山台（总览）→ 主流观点 → 判断力自测（含信谁框架）→ 行动地图
 const NODES = [
   { key: 'card', label: '处境卡', step: 'card' },
-  { key: 'hub', label: '炼金包', step: 'result0' },
+  { key: 'hub', label: '观山台', step: 'result0' },
   { key: 'wall', label: '主流观点', step: 'result1' },
   { key: 'quiz', label: '判断力自测', step: 'result2' },
   { key: 'action', label: '行动地图', step: 'result3' },
@@ -22,7 +22,7 @@ function currentIndex(step) {
 export default function LogicChain({ current, onGoto, quizDone }) {
   const ci = currentIndex(current);
   return (
-    <ol className="logic-chain" aria-label="炼金五步逻辑链">
+    <ol className="logic-chain" aria-label="观山主线">
       {NODES.map((n, i) => {
         const state = i < ci ? 'done' : i === ci ? 'current' : 'upcoming';
         const locked = n.key === 'action' && !quizDone; // 行动地图依赖自测
@@ -34,7 +34,7 @@ export default function LogicChain({ current, onGoto, quizDone }) {
               aria-current={state === 'current' ? 'step' : undefined}
               title={locked ? '需先完成判断力自测' : n.label}
             >
-              <span className="lc-dot">{i + 1}</span>
+              <span className="lc-dot" aria-hidden="true" />
               <span className="lc-label">{n.label}</span>
               {locked && <span className="lc-warn">需先完成自测</span>}
             </li>

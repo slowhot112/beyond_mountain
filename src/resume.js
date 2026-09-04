@@ -3,11 +3,19 @@
 // 部署环境不需要 Python）；服务端 MarkItDown（md_server.py）为**可选拓展**，仅用于
 // 浏览器解析不了的格式（xls / ppt / doc 等冷门格式）兜底，评委演示链路不依赖它。
 import { api } from './lib.js';
-import * as pdfjs from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import * as mammoth from 'mammoth';
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+// pdfjs 主模块在加载时会访问 DOM，顶层静态 import 在部分 WebView 下会拿到 null 而崩白屏。
+// 改为首次解析 PDF 时才动态加载，避开首屏初始化（landing 页不再引入 pdfjs）。
+let pdfjsMod = null;
+async function getPdfJs() {
+  if (!pdfjsMod) {
+    pdfjsMod = await import('pdfjs-dist');
+    pdfjsMod.GlobalWorkerOptions.workerSrc = workerSrc;
+  }
+  return pdfjsMod;
+}
 
 // tesseract.js 动态加载：只在处理图片简历时才请求训练数据，减少首屏包体积
 let Tesseract = null;
@@ -28,6 +36,7 @@ export async function parseDocViaServer(file, onProgress) {
 
 // PDF → 文本（pdfjs，文字层）
 async function pdfToText(file) {
+  const pdfjs = await getPdfJs();
   const buf = await file.arrayBuffer();
   const doc = await pdfjs.getDocument({ data: buf }).promise;
   let text = '';

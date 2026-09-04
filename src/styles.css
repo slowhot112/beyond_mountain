@@ -752,6 +752,9 @@ a { color: var(--zhihu); }
 .role-name { font-weight: 700; font-size: 15px; color: var(--ink); }
 .role-form { font-size: 12px; color: var(--muted); }
 .role-toggle { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.role-preview { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.role-preview-core { font-size: 13px; color: var(--ink-soft); line-height: 1.5; }
+.role-preview-meta { font-size: 11.5px; color: var(--muted); }
 .role-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; background: var(--paper); transition: border-color .15s, background .15s; }
 .role-card.active { border-color: var(--zhihu); background: #f8fbfa; }
 .role-stance-box {
@@ -795,6 +798,9 @@ a { color: var(--zhihu); }
 /* 自测 → 行动地图的衔接卡 */
 .action-link { margin: 2px 0 12px; padding: 10px 12px; background: var(--zhihu-soft); border-radius: 8px; color: var(--zhihu-ink); font-size: 13.5px; line-height: 1.6; }
 .action-link-blind { margin-top: 6px; font-size: 12.5px; color: var(--ink-soft); }
+.action-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.action-filters button { padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink-soft); font-size: 12.5px; cursor: pointer; }
+.action-filters button.active { background: var(--zhihu-blue); color: #fff; border-color: var(--zhihu-blue); }
 /* 结果页总览：②③④ 三张入口卡 */
 .hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .hub-card { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--paper); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
@@ -802,7 +808,8 @@ a { color: var(--zhihu); }
 .hub-card.locked { opacity: .5; cursor: not-allowed; }
 .hub-card.locked:hover { border-color: var(--line); box-shadow: none; transform: none; }
 .hub-top { display: flex; align-items: center; justify-content: space-between; }
-.hub-no { font-size: 18px; font-weight: 700; color: var(--zhihu); }
+.hub-step-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.wall-next { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .hub-icon { font-size: 22px; line-height: 1; }
 .hub-title { margin: 2px 0 0; font-size: 16px; font-weight: 700; color: var(--ink); }
 .hub-sub { font-size: 12px; font-weight: 600; color: var(--zhihu); }
@@ -815,10 +822,37 @@ a { color: var(--zhihu); }
 .action-progress { font-weight: 600; color: var(--green); margin-left: 8px; }
 .action-list li.done .action-task { text-decoration: line-through; color: var(--muted); }
 .action-list li { cursor: pointer; }
+.action-tag {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--zhihu); background: var(--zhihu-soft);
+  border: 1px solid #cfe0da; border-radius: 999px;
+  padding: 2px 10px; margin-bottom: 6px;
+}
+.action-list li.done .action-tag { opacity: .6; }
+.action-when {
+  display: inline-block;
+  font-size: 11.5px; font-weight: 700;
+  color: #b45309; background: #fff4e6;
+  border: 1px solid #f5d9b0; border-radius: 999px;
+  padding: 2px 10px; margin: 0 6px 6px 0;
+}
+.action-list li.done .action-when { opacity: .6; }
+.action-hypo { font-size: 13px; color: #1f2937; font-weight: 600; margin: 6px 0 4px; }
+.action-do { font-size: 13px; color: #374151; margin: 2px 0; }
+.action-go { font-size: 12.5px; color: #15803d; background: #f0fdf4; border-left: 3px solid #22c55e; padding: 5px 8px; margin: 4px 0; border-radius: 0 6px 6px 0; }
+.action-stop { font-size: 12.5px; color: #b91c1c; background: #fef2f2; border-left: 3px solid #ef4444; padding: 5px 8px; margin: 4px 0; border-radius: 0 6px 6px 0; }
+.action-list li.done .action-hypo,
+.action-list li.done .action-do { opacity: .6; }
+.action-list li.done .action-go,
+.action-list li.done .action-stop { opacity: .5; }
+.action-regen { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0 4px; }
+.action-regen-note { font-size: 12.5px; color: var(--green); background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 4px 10px; }
+.action-regen-note b { color: #15803d; }
 
 /* ---------- landing（工单02：静态刘看山引导页，以下均为追加规则） ---------- */
 .back-row { display: flex; justify-content: flex-start; margin-top: 18px; }
-.landing { text-align: center; padding-top: 42px; padding-bottom: 38px; }
+.landing { text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 24px 20px; margin-top: 0; }
 .landing-figure {
   width: 128px; height: 128px; margin: 0 auto;
   border: 1.5px dashed var(--line-strong); border-radius: 20px;
@@ -841,6 +875,29 @@ a { color: var(--zhihu); }
 .landing-actions { margin-top: 22px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .landing-start { font-size: 15px; padding: 12px 36px; letter-spacing: 2px; border-radius: 12px; }
 .landing-hint { font-size: 12.5px; }
+
+/* 我的地盘：历史炼金包列表 */
+.record-list { display: flex; flex-direction: column; gap: 10px; margin: 18px 0 4px; text-align: left; }
+.record-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  width: 100%; padding: 13px 16px; background: #fff;
+  border: 1px solid var(--line, #e6e6e6); border-radius: 12px; cursor: pointer;
+  font: inherit; color: var(--ink, #222); transition: border-color .15s, box-shadow .15s;
+}
+.record-item:hover { border-color: var(--zhihu); box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+.record-topic { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-meta { flex-shrink: 0; font-size: 12px; color: var(--ink-soft, #888); }
+.record-flag { font-style: normal; color: #c47f17; }
+
+/* 来源标签：知乎 / 全网 + 权威等级（让检索来源与可信度一眼可见） */
+.source-badges { display: flex; gap: 6px; margin: 6px 0 4px; flex-wrap: wrap; }
+.src-badge {
+  font-size: 11px; line-height: 1.7; padding: 0 7px; border-radius: 999px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.src-badge.zhihu { background: #eaf3ff; color: #1a6fd4; border-color: #c9e0ff; }
+.src-badge.web { background: #f3f0ff; color: #6a4bc8; border-color: #ded6ff; }
+.src-badge.auth { background: #fff6e6; color: #b26b00; border-color: #ffe3b0; }
 @media (max-width: 600px) {
   .landing { padding-top: 30px; padding-bottom: 28px; }
   .landing-figure { width: 104px; height: 104px; border-radius: 16px; }
@@ -884,3 +941,57 @@ a { color: var(--zhihu); }
    flex 子项 min-width:auto 使其无法收缩 → 整页横向溢出 36px。追加规则允许其任意断行。
    （QuotaHint 自身 191px 且 flex-wrap 换行正常，非溢出源；此为同区域的最小修复，0 deletions） */
 .health-bar .health-msg { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- 检索统筹卡片（让"检索统筹/权重"在结果页可见） ---------- */
+.search-stats {
+  display: flex; flex-direction: column; gap: 4px;
+  background: #eef3f1; border: 1px solid #cfe0da; border-radius: 12px;
+  padding: 12px 16px; margin-bottom: 14px; font-size: 13.5px; color: var(--zhihu-ink); line-height: 1.6;
+}
+.search-stats .ss-title { font-weight: 700; font-size: 13px; color: var(--zhihu); }
+.search-stats .ss-line { color: var(--ink-soft); }
+.search-stats .ss-line b { color: var(--zhihu-ink); font-weight: 700; }
+.search-stats .ss-reason { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- 长期成长地图（替代历史列表，呼应"不是一次性的、长期陪伴"） ---------- */
+.growth-map { display: flex; flex-direction: column; gap: 0; margin: 18px 0 4px; text-align: left; position: relative; padding-left: 22px; }
+.growth-map::before { content: ""; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 2px; background: var(--line-strong); }
+.map-node {
+  position: relative; display: flex; align-items: flex-start; gap: 12px;
+  width: 100%; background: none; border: none; padding: 8px 0; cursor: pointer; text-align: left;
+}
+.map-node:hover .map-card { border-color: var(--zhihu); box-shadow: 0 2px 10px rgba(0,0,0,.06); transform: translateX(2px); }
+.map-dot {
+  position: absolute; left: -22px; top: 16px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--zhihu); border: 2px solid #fff; box-shadow: 0 0 0 2px var(--zhihu-soft);
+  flex: none;
+}
+.map-card {
+  flex: 1; background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 16px; transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.map-topic { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-meta { font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+.landing-kb { font-size: 14px; padding: 11px 20px; border-radius: 12px; }
+
+/* ---------- 知识库对话（轻量 RAG） ---------- */
+.chat { max-width: 760px; margin: 0 auto; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-head h2 { margin: 0; font-family: var(--serif); font-size: 22px; }
+.chat-sub { font-size: 13px; color: var(--muted); margin: 6px 0 14px; }
+.chat-body { display: flex; flex-direction: column; gap: 12px; max-height: 56vh; overflow-y: auto; padding: 4px; }
+.chat-msg { display: flex; }
+.chat-msg.user { justify-content: flex-end; }
+.chat-msg.assistant { justify-content: flex-start; }
+.chat-bubble { max-width: 80%; padding: 11px 14px; border-radius: 14px; font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+.chat-msg.user .chat-bubble { background: var(--zhihu); color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg.assistant .chat-bubble { background: #f3f5f4; color: var(--ink); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.chat-input { display: flex; gap: 10px; margin-top: 14px; align-items: flex-end; }
+.chat-input textarea {
+  flex: 1; min-height: 52px; max-height: 140px; resize: vertical;
+  padding: 12px 14px; font-size: 14px; font-family: var(--sans);
+  border: 1.5px solid var(--line-strong); border-radius: 12px; outline: none; color: var(--ink); background: var(--paper);
+}
+.chat-input textarea:focus { border-color: var(--zhihu); }
+.chat-input button { height: 52px; }

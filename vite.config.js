@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [react()],
   root: __dirname,
   build: {
-    outDir: 'dist',
+    outDir: 'E:/kan-dist',
     emptyOutDir: true,
   },
   server: {

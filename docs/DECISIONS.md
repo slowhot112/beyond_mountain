@@ -71,11 +71,11 @@
 ### D-10 简历解析链路收束 + 遗留代码清理 + 健康检查降耗 `[已确认 2026-08-30]`
 - **简历解析链路**：浏览器端为主链路——PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js 懒加载）/ TXT·MD 直读，部署**零 Python 依赖**；`/api/resume` 结构化抽取 **StepFun 优先、知乎直答兜底**（此前模块③进度记录只写"直答抽取"，以本条为准）。`md_server.py`（MarkItDown）定位为**后续拓展模块**：仅覆盖基础文字格式及 xls/ppt/doc 等冷门格式兜底，暂不部署，评委链路不依赖；未来扫描件 OCR 走 `markitdown-ocr` 插件 + 视觉 LLM 或前端"pdfjs 渲染页面 → tesseract"方案。
 - **遗留代码清理**：删除旧版前端页面（`public/index.html` / `app.js` / `styles.css`）、`personas.js`（无引用，内容已在 `src/lib.js`）、`copy_badges.py`（服务于已砍的 3D 工牌）。`server.mjs` 静态服务只托管 `dist/`，未构建时明确 404 提示（消除"静默回退旧版页面"陷阱）。`public/` 仅保留 Vite 静态资源。`/api/hot` 热榜与 OAuth 骨架保留在后端；"热榜灵感"如需在 React 版首屏呈现，作为后续小任务。
-- **健康检查降耗**：`/api/health` 从"跑一次完整炼金"改为调用免费额度接口 `/api/v1/quota`（新增 `zhihu.js#zhihuQuota()`，5 分钟缓存），不再消耗直答 100 次/天 配额，并顺带把剩余额度展示给前端（落地原"配额保护"待办的前半部分）。
+- **健康检查降耗**：`/api/health` 从"跑一次完整生成"改为调用免费额度接口 `/api/v1/quota`（新增 `zhihu.js#zhihuQuota()`，5 分钟缓存），不再消耗直答 100 次/天 配额，并顺带把剩余额度展示给前端（落地原"配额保护"待办的前半部分）。
 
 ### D-11 鉴权与直答环境变量 OpenAI 兼容命名 `[已确认 2026-08-30]`
 - 背景：知乎直答接口本身已是 OpenAI 兼容格式（`POST /v1/chat/completions` + `messages` + `choices[0].message.content`），但鉴权环境变量沿用赛事命名 `ZHIHU_ACCESS_SECRET`，在部署平台与 OpenAI 生态（网关/开发者习惯/通用工具链）中命名不兼容。
-- **决策：直答侧命名对齐 OpenAI——鉴权主名 `OPENAI_API_KEY`，旧名 `ZHIHU_ACCESS_SECRET` 保留为回退（`process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET`）；直答端点参数化为 `OPENAI_BASE_URL`（默认 `https://developer.zhihu.com/v1`，调用 `{OPENAI_BASE_URL}/chat/completions`）、模型参数化为 `OPENAI_MODEL`（默认 `zhida-fast-1p5`），默认值下直答 URL 与模型与现状逐字节一致。热榜/搜索/额度等原生端点（`/api/v1/*`）不受影响，鉴权头（Bearer + X-Request-Timestamp）与缓存/炼金逻辑均不变。**
+- **决策：直答侧命名对齐 OpenAI——鉴权主名 `OPENAI_API_KEY`，旧名 `ZHIHU_ACCESS_SECRET` 保留为回退（`process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET`）；直答端点参数化为 `OPENAI_BASE_URL`（默认 `https://developer.zhihu.com/v1`，调用 `{OPENAI_BASE_URL}/chat/completions`）、模型参数化为 `OPENAI_MODEL`（默认 `zhida-fast-1p5`），默认值下直答 URL 与模型与现状逐字节一致。热榜/搜索/额度等原生端点（`/api/v1/*`）不受影响，鉴权头（Bearer + X-Request-Timestamp）与缓存/生成逻辑均不变。**
 - 影响：`docs/DEPLOY.md`（方式一/方式二与环境变量表）、`README.md` 用户文案已同步；`.env` 平滑迁移——旧名仍被回退识别、不迁移也不致断，改配新名即可（MarkItDown `md_server.py` 零改动）。
 
 ---

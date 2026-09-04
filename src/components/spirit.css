@@ -1,0 +1,170 @@
+/* 刘看山 · 全局常驻伙伴（灵宝式悬浮助手） */
+.spirit-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 60;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.28));
+  transition: transform 0.18s ease;
+}
+.spirit-fab:hover { transform: translateY(-3px) scale(1.04); }
+.spirit-gif {
+  width: 96px;
+  height: 96px;
+  display: block;
+  pointer-events: none;
+}
+.spirit-bubble {
+  position: absolute;
+  right: 108px;
+  bottom: 26px;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 150px));
+  width: max-content;
+  background: #fff;
+  border: 1px solid #e7d9c4;
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #5b4a36;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+  text-align: left;
+  white-space: normal;
+}
+.spirit-bubble::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  bottom: 16px;
+  border: 7px solid transparent;
+  border-left-color: #fff;
+}
+.spirit-bubble::before {
+  content: '';
+  position: absolute;
+  right: -8px;
+  bottom: 16px;
+  border: 7px solid transparent;
+  border-left-color: #e7d9c4;
+}
+
+.spirit-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 128px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  height: 520px;
+  max-height: calc(100vh - 160px);
+  background: #fffdf8;
+  border: 1px solid #ecdcc2;
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  z-index: 61;
+  overflow: hidden;
+}
+.spirit-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #fff4e2, #ffe9cf);
+  border-bottom: 1px solid #f0e0c4;
+}
+.spirit-head-gif { width: 40px; height: 40px; border-radius: 10px; }
+.spirit-id { flex: 1; }
+.spirit-name { font-weight: 700; color: #6b4f2a; font-size: 15px; }
+.spirit-sub { font-size: 12px; }
+.spirit-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fffdf8;
+}
+.spirit-msg { display: flex; }
+.spirit-msg.user { justify-content: flex-end; }
+.spirit-msg.assistant { justify-content: flex-start; }
+.spirit-bubble-txt {
+  max-width: 80%;
+  padding: 9px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.spirit-msg.assistant .spirit-bubble-txt {
+  background: #f4ead6;
+  color: #4f3c23;
+  border-bottom-left-radius: 4px;
+}
+.spirit-msg.user .spirit-bubble-txt {
+  background: #ff8a4c;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.spirit-input {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #f0e0c4;
+  background: #fffaf0;
+}
+.spirit-input textarea {
+  flex: 1;
+  resize: none;
+  height: 44px;
+  border: 1px solid #e6d4b6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+.spirit-input textarea:focus { border-color: #ff8a4c; }
+.spirit-foot {
+  padding: 6px 14px 10px;
+  font-size: 11px;
+  text-align: center;
+  border-top: 1px dashed #f0e0c4;
+}
+
+/* 成长地图常驻（空也露引导） */
+.growth-map-empty {
+  margin-top: 10px;
+  padding: 26px 18px;
+  border: 2px dashed #e6d4b6;
+  border-radius: 14px;
+  text-align: center;
+  color: #9c8a6f;
+  background: #fffaf0;
+}
+.growth-map-empty b { color: #7a5c33; }
+
+/* 检索统筹比例条 */
+.search-stats { margin: 14px 0 6px; padding: 12px 14px; background: #fffaf0; border: 1px solid #f0e2c8; border-radius: 12px; }
+.ss-title { font-weight: 700; color: #7a5c33; display: block; margin-bottom: 6px; }
+.ss-line { display: block; line-height: 1.6; color: #5b4a36; font-size: 14px; }
+.ss-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; margin: 10px 0 8px; background: #eee; }
+.ss-fill { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.ss-fill.zhihu { background: linear-gradient(135deg, #ff8a4c, #ff6a3d); }
+.ss-fill.web { background: linear-gradient(135deg, #4a90d9, #3a78c2); }
+.ss-reason { display: block; font-size: 13px; line-height: 1.6; color: #6b5a44; }
+.ss-warn { color: #b5642a; }
+
+/* 观点墙来源比例 + 全网高亮 */
+.role-preview-meta { color: #9c8a6f; }
+.source-card.web { border-color: #bcd4ee; box-shadow: inset 0 0 0 1px #e3eefb; }
+.src-badge.web { background: #e3eefb; color: #2f6db0; }
+.src-badge.zhihu { background: #ffe3d2; color: #c85a2a; }

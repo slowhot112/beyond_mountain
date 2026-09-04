@@ -103,9 +103,9 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
 
   return (
     <section className="card quiz">
-      <h2>③ 判断力自测（魔鬼辩驳）</h2>
+      <h2>③ 辨向自测（逼自己站一站）</h2>
       <p className="muted">
-        先选你的立场，再标记你有多确定——如果选项里没有你真正想说的，点「其他」自己写。
+        先选你倾向哪一派，再标记你有多确定——如果选项里没有你真正想说的，点「其他」自己写。
         {answeredCount > 0 && <span className="quiz-progress">已答 {answeredCount}/{total}</span>}
       </p>
       {quiz.map((q, i) => {
@@ -134,7 +134,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
                     title={role ? `${role.name || role.stance}` : ''}
                   >
                     {esc(label)}
-                    {role && <span className="quiz-opt-side">{esc(role.name || role.stance || side)}</span>}
+                    {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
                   </button>
                 );
               })}
@@ -153,7 +153,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
             )}
             {a && (
               <div className="quiz-feedback">
-                <div className="quiz-chosen">你选了：<b>{esc(chosenLabel)}</b></div>
+                <div className="quiz-chosen">你倾向：<b>{esc(chosenLabel)}</b></div>
                 <div className="quiz-confidence">
                   <span className="lbl">你有多确定？</span>
                   {CONF.map((c) => (
@@ -168,14 +168,14 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
                 {a.confidence && (
                   <div className="quiz-conf-note">
                     {a.confidence === 'low'
-                      ? '不确定也没关系——这恰好说明这一派你还没形成判断，正是该补的盲区。'
+                      ? '不确定也没关系——这恰好是一片你还没看清的岔口，正是该补的盲区。'
                       : a.confidence === 'high'
                         ? '很确定？回头看解析时，专门找「和你相反」的那派论据，检验自己是不是只信了一边。'
                         : '一般确定说明你看到了两边道理，继续看解析会帮你把模糊处坐实。'}
                   </div>
                 )}
-                <div><b>反馈：</b>{esc(q.feedback)}</div>
-                {q.analysis && <div className="quiz-analysis"><b>解析：</b>{esc(q.analysis)}</div>}
+                <div><b>回响：</b>{esc(q.feedback)}</div>
+                {q.analysis && <div className="quiz-analysis"><b>拆解：</b>{esc(q.analysis)}</div>}
               </div>
             )}
           </div>
@@ -183,21 +183,21 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
       })}
       {answeredCount === total && (
         <div className="quiz-summary">
-          <div>自测完成。</div>
+          <div>辨向完成。</div>
           {dominant && (
-            <div>立场分布：你目前更偏向 <b>{esc(sideDisplayName(roleMap, dominant[0]))}</b>（{dominant[1]}/{total} 题）。三派并非非此即彼，建议补另外两派视角。</div>
+            <div>你目前的偏向：<b>{esc(sideDisplayName(roleMap, dominant[0]))}</b>（{dominant[1]}/{total} 题）。三派并非非此即彼，建议补另外两派视角。</div>
           )}
           {uncertainSides.length > 0 ? (
             <div className="quiz-blind">
-              认知盲区：你在 <b>{uncertainSides.map((s) => esc(sideDisplayName(roleMap, s))).join('、')}</b> 上选择了「不确定」。
-              这些就是你现在最该补的判断维度——重看对应派的「核心论点」和「边界」，比刷题更能长判断力。
+              还没看清的岔口：你在 <b>{uncertainSides.map((s) => esc(sideDisplayName(roleMap, s))).join('、')}</b> 上选择了「不确定」。
+              这些就是你现在最该补的判断维度——重看对应山头的「最硬论据」和「前提」，比刷题更能长判断力。
             </div>
           ) : (
             <div>你对所有题都给出了确定程度。真正的高手不只站对边，更知道自己哪里可能错——回头把每题「相反立场」的论据也读一遍。</div>
           )}
           {onGotoActions && (
             <button type="button" className="chip primary quiz-to-actions" onClick={onGotoActions}>
-              按我的自测结果生成行动地图 →
+              按我的辨向结果生成脚下三步 →
             </button>
           )}
         </div>

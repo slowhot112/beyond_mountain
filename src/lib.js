@@ -1,11 +1,19 @@
 // 共享数据与工具函数（从原 app.js 平移，改用 ES 模块导出）
 
 // ---------- 统一 API 客户端（REST envelope：{ok, data} / {ok, code, message}） ----------
+// 默认 50s 超时（覆盖后端 alchemy 最坏 ~40s 兜底），避免慢请求下按钮一直转圈
 export async function api(path, opts = {}) {
-  const res = await fetch(path, opts);
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.message || json.error || '请求失败');
-  return json.data;
+  const timeout = opts.timeout || 70000;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(path, { ...opts, signal: opts.signal || ctrl.signal });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.message || json.error || '请求失败');
+    return json.data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- 热榜灵感（工单03）：统一热榜 fetch 封装 ----------
@@ -166,20 +174,27 @@ export function personaLabel(card) {
 }
 
 // 基于处境卡生成检索词（模块④：检索词结合处境卡）
+// 关键：用户这次输入的问题（confusion）是检索唯一主线，绝不被建档行业（如 AIGC）带偏。
+// 之前会把「AIGC AI 找全职」这种建档行业词也塞进检索，导致问"做陶瓷"却搜回一堆 AIGC 结果。
 export function buildQueries(card) {
-  const ind = INDUSTRIES.find((x) => x.id === card.industry) || INDUSTRIES[0];
-  const sub = card.sub || ind.subs[0];
   const stage = STAGES.find((x) => x.id === card.stage) || STAGES[0];
   const goals = (card.goals || []).map((g) => (GOALS.find((x) => x.id === g) || {}).name).filter(Boolean);
   const goalKw = goals[0] || stage.name;
-  const base = [sub, ind.name].filter(Boolean);
   const out = new Set();
-  out.add(`${base.join(' ')} ${goalKw}`.trim());
-  out.add(`${sub} 真实经历`);
-  out.add(`${sub} 要不要`);
-  if (card.confusion) out.add(card.confusion);
-  if (goals.includes('转行') || goals.includes('换行业') || stage.id === 'shift') out.add(`${sub} 转行`);
-  if (goals.includes('找实习') || stage.id === 'explore') out.add(`${sub} 实习`);
+  // 用户这次输入的真实问题是检索绝对主线：排在最前，确保"问什么搜什么"
+  if (card.confusion && card.confusion.trim()) {
+    const c = card.confusion.trim();
+    out.add(c);
+    const short = c.replace(/[?？!！。，,、.;；].*$/, '').slice(0, 16) || c.slice(0, 12);
+    out.add(short);
+    out.add(`${short} ${goalKw}`.trim()); // 同一主题 + 目标，多一个检索角度，但绝不混入建档行业
+  }
+  // 仅当用户完全没填问题（极少见）时，才退而用建档行业兜底，避免把 AIGC 等建档行业混入检索
+  if (out.size === 0) {
+    const ind = INDUSTRIES.find((x) => x.id === card.industry) || INDUSTRIES[0];
+    const sub = card.sub || ind.subs[0];
+    out.add(`${sub} ${goalKw}`.trim());
+  }
   return [...out].slice(0, 5);
 }
 
@@ -257,9 +272,67 @@ export function saveActions(d, i, val) {
   try { localStorage.setItem(actKey(d), JSON.stringify(o)); } catch {}
 }
 
+// ---------- 历史炼金包（完整存档，可回看） ----------
+// 存的是一整次分析的完整快照（处境卡 + 结果 + 自测），刷新或关掉页面都不丢。
+// v 是存档格式版本号：以后改结构时，老存档照样能读出来，不会打不开。
+const RECORDS_KEY = 'alchemy:records';
+export const RECORD_VERSION = 1;
+export const RECORD_MAX = 30;
+
+// 以下两个是纯函数（不碰 localStorage），便于脱离浏览器做回归测试
+export function pruneRecords(list, max = RECORD_MAX) {
+  const arr = Array.isArray(list) ? list.slice() : [];
+  arr.sort((a, b) => (Number(b && b.ts) || 0) - (Number(a && a.ts) || 0)); // 新的排前面
+  return arr.slice(0, max);
+}
+export function normalizeRecord(rec) {
+  const r = rec && typeof rec === 'object' ? rec : {};
+  return { ...r, v: Number(r.v) || RECORD_VERSION, ts: Number(r.ts) || Date.now() };
+}
+export function loadRecords() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECORDS_KEY) || '[]');
+    return (Array.isArray(raw) ? raw : []).map(normalizeRecord);
+  } catch { return []; }
+}
+// 自动存档：生成成功就存，同话题覆盖旧的，超过上限淘汰最旧的，不用手动点保存
+export function saveRecord({ card, data, quiz }) {
+  try {
+    const rec = normalizeRecord({
+      id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      topic: (data && data.topic) || (card && card.confusion) || '',
+      card: card || null,
+      data: data || null,
+      quiz: quiz || null,
+      fallback: !!(data && data.fallback),            // 直答失败、内容由真实搜索结果兜底生成
+      lowConfidence: !!(data && data.lowConfidence),  // 相关讨论不足，由相近主题兜底
+    });
+    const list = [rec, ...loadRecords().filter((r) => r.topic !== rec.topic)];
+    try {
+      localStorage.setItem(RECORDS_KEY, JSON.stringify(pruneRecords(list, RECORD_MAX)));
+    } catch {
+      // 本地空间不足：先砍掉一半旧的再试；仍写不进就放弃存档，绝不影响本次生成
+      try {
+        localStorage.setItem(RECORDS_KEY, JSON.stringify(pruneRecords(list, Math.max(5, Math.floor(RECORD_MAX / 2)))));
+      } catch { console.warn('[history] 本地空间不足，本次存档已跳过'); }
+    }
+    return rec;
+  } catch { return null; }
+}
+// 答完自测后把结果补进「指定的那条」存档（回看历史时答题，结果写回你正在看的那条，不会串档）
+export function updateRecordQuiz(id, quiz) {
+  try {
+    const list = loadRecords();
+    const i = list.findIndex((r) => r.id === id);
+    if (i < 0 || !quiz) return;
+    list[i] = normalizeRecord({ ...list[i], quiz });
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
+  } catch {}
+}
+
 // 导出 Markdown
 export function exportMd(d) {
-  let md = `# 知乎炼金术 · 判断力炼金包：${d.topic}\n\n`;
+  let md = `# 山外山 · 观山台：${d.topic}\n\n`;
   md += `> 不替你下结论，帮你在知乎众声里炼出自己的判断。由知乎高赞讨论 + 刘看山 AI 炼制。\n\n`;
   md += `## 观点对峙墙\n`;
   md += `> ${d.conflict?.summary || ''}\n\n`;
@@ -280,7 +353,29 @@ export function exportMd(d) {
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `知乎炼金术_${d.topic}.md`;
+  a.download = `山外山_${d.topic}.md`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// 把一条历史炼金包压成纯文本，作为知识库 / RAG 的上下文素材（轻量，不依赖向量库）
+export function recordToText(rec) {
+  const d = rec?.data || {};
+  const parts = [];
+  parts.push('主题：' + (rec?.topic || d.topic || '未命名'));
+  const roles = d.conflict?.roles || [];
+  if (roles.length) {
+    parts.push('观点对峙：');
+    roles.forEach((r) => {
+      const name = r.name || r.stance || '某角色';
+      const arg = r.coreArg || '';
+      if (arg) parts.push(`- ${name}：${arg}`);
+    });
+  }
+  const acts = d.actions || [];
+  if (acts.length) {
+    parts.push('行动地图：');
+    acts.forEach((a) => { if (a.task) parts.push(`- ${a.task}`); });
+  }
+  return parts.join('\n');
 }

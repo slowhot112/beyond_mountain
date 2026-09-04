@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { esc, loadActions, saveActions } from '../lib.js';
+import { esc, loadActions, saveActions, api, personaPayload } from '../lib.js';
 
-export default function ActionMap({ data, quizResult }) {
+export default function ActionMap({ data, quizResult, persona }) {
   const [done, setDone] = useState({});
+  const [filter, setFilter] = useState('all'); // all | soon | later | dominant | blind
+  const [override, setOverride] = useState(null); // 按自测反馈重生后的行动地图
+  const [regen, setRegen] = useState(false);
 
   useEffect(() => {
     setDone(loadActions(data));
@@ -14,7 +17,7 @@ export default function ActionMap({ data, quizResult }) {
     return map;
   }, [data]);
 
-  // 与判断力自测的衔接：用当次自测的立场分布 / 盲区，给出优先做什么
+  // 与辨向自测的衔接：用当次自测的立场分布 / 盲区，给出优先做什么
   const link = useMemo(() => {
     if (!quizResult || !quizResult.answeredCount) return null;
     const entries = Object.entries(quizResult.sideCounts || {}).sort((a, b) => b[1] - a[1]);
@@ -38,34 +41,133 @@ export default function ActionMap({ data, quizResult }) {
     saveActions(data, i, v);
   }
 
-  if (!data.actions || !data.actions.length) return null;
-  const total = data.actions.length;
+  // 按自测反馈重生行动地图：把"最信哪一派 / 哪些盲区"发给后端，生成贴合辨向的验证路线
+  async function regenerate() {
+    if (!data.conflict?.roles?.length || !quizResult?.answeredCount) return;
+    setRegen(true);
+    try {
+      const r = await api('/api/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic: data.topic || '',
+          roles: data.conflict.roles,
+          quizResult,
+          persona: personaPayload ? personaPayload(persona || {}) : {},
+        }),
+      });
+      if (r && r.actions && r.actions.length) {
+        setOverride(r.actions);
+        setDone({});
+        setFilter('all');
+      }
+    } catch (e) {
+      // 失败则保留首版，不阻断
+    } finally {
+      setRegen(false);
+    }
+  }
+
+  const actions = override || data.actions; // 默认首版；按辨向重生后切到再生版
+  if (!actions || !actions.length) return null;
+  const total = actions.length;
   const completed = Object.values(done).filter(Boolean).length;
+
+  const indexedActions = useMemo(() => (override || data.actions).map((a, i) => ({ ...a, originalIndex: i })), [override, data.actions]);
+
+  const sortedActions = useMemo(() => {
+    let arr = indexedActions;
+    if (link && quizResult) {
+      const dominantId = quizResult.dominant?.[0];
+      const blindIds = quizResult.uncertainSides || [];
+      const first = [];
+      const second = [];
+      const rest = [];
+      arr.forEach((a) => {
+        const roleName = roleMap[a.role]?.name || a.role;
+        if (dominantId && a.role === dominantId) {
+          first.push({ ...a, tag: `先验证你最信的「${esc(roleName)}」` });
+        } else if (blindIds.length && blindIds.includes(a.role)) {
+          second.push({ ...a, tag: `补你标了不确定的「${esc(roleName)}」视角` });
+        } else {
+          rest.push(a);
+        }
+      });
+      arr = [...first, ...second, ...rest];
+    }
+    // 筛选 chips
+    if (filter === 'soon') return arr.filter((a) => /接下来|今天|本周/.test(a.when || ''));
+    if (filter === 'later') return arr.filter((a) => /本月|三个月/.test(a.when || ''));
+    if (filter === 'dominant') {
+      const id = quizResult?.dominant?.[0];
+      return id ? arr.filter((a) => a.role === id) : arr;
+    }
+    if (filter === 'blind') {
+      const ids = quizResult?.uncertainSides || [];
+      return ids.length ? arr.filter((a) => ids.includes(a.role)) : arr;
+    }
+    return arr;
+  }, [indexedActions, link, quizResult, roleMap, filter]);
 
   return (
     <section className="card actions">
-      <h2>④ 行动地图（先求小赢，不求大翻盘）</h2>
-      <p className="muted">勾掉你能做的，剩下的再想。{completed > 0 && <span className="action-progress">已完成 {completed}/{total}</span>}</p>
+      <h2>④ 决策验证路线（先验证判断，再下结论）</h2>
+      <p className="muted">每条都在验证一个关键判断，并给了你「该坚持 / 该收手」两把尺子。勾掉已做的，剩下的再慢慢想。{completed > 0 && <span className="action-progress">已完成 {completed}/{total}</span>}</p>
       {link && (
         <div className="action-link">
-          接上你刚做完的自测（{link.answered} 题）：
+          接上你刚才的辨向（{link.answered} 题）：
           {link.topName
-            ? <>你更偏向 <b>{esc(link.topName)}</b>（{link.topN} 题）。先做下面第 1 条去验证你最信的这一派，再看第 2 条补相反视角。</>
-            : <>你还没给出明确的立场倾向（多数题选了「不确定」），先做下面第 1 条拿一手事实，别急着站队。</>}
+            ? <>你更偏向 <b>{esc(link.topName)}</b>（{link.topN} 题）。排序已把验证这一派的任务提前，盲区视角的任务紧跟其后。</>
+            : <>你还没给出明确的立场倾向（多数题选了「不确定」），排序已把补盲区的任务提前，先做这些拿一手事实。</>}
           {link.blinds.length > 0 && (
             <div className="action-link-blind">
-              你在 <b>{esc(link.blinds.join('、'))}</b> 上标了「不确定」：这是你最该补的判断维度，做第 2 条时专门找这类视角的信息。
+              你在 <b>{esc(link.blinds.join('、'))}</b> 上标了「不确定」：这是你最该补的判断维度。
             </div>
           )}
         </div>
       )}
+      <div className="action-filters">
+        {[
+          { k: 'all', label: '全部' },
+          { k: 'soon', label: '近期先干' },
+          { k: 'later', label: '长线准备' },
+          { k: 'dominant', label: '最信视角' },
+          { k: 'blind', label: '不确定视角' },
+        ].map((c) => (
+          <button
+            key={c.k}
+            type="button"
+            className={filter === c.k ? 'active' : ''}
+            onClick={() => setFilter(c.k)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <div className="action-regen">
+        <button type="button" className="chip primary" disabled={regen || !quizResult?.answeredCount} onClick={regenerate}>
+          {regen ? '正在按你的辨向重生…' : '按我刚答的辨向，重做一份行动地图 →'}
+        </button>
+        {override && (
+          <span className="action-regen-note">
+            已按你的辨向重生：偏向 <b>{esc(link?.topName || '未明确')}</b>
+            {link?.blinds?.length ? `，并补盲区 ${esc(link.blinds.join('、'))}` : ''}
+          </span>
+        )}
+      </div>
       <ul className="action-list">
-        {data.actions.map((a, i) => (
-          <li key={i} className={done[i] ? 'done' : ''} onClick={() => toggle(i)}>
-            <input type="checkbox" readOnly checked={!!done[i]} />
+        {sortedActions.map((a) => (
+          <li key={a.originalIndex} className={done[a.originalIndex] ? 'done' : ''} onClick={() => toggle(a.originalIndex)}>
+            <input type="checkbox" readOnly checked={!!done[a.originalIndex]} />
             <div>
-              <div className="action-task">{esc(a.task)}</div>
-              <div className="action-why">{esc(a.why)}</div>
+              {a.when && <span className="action-when">⏱ {esc(a.when)}</span>}
+              {a.tag && <span className="action-tag">{esc(a.tag)}</span>}
+              {a.hypothesis && <div className="action-hypo">🔍 要验证：{esc(a.hypothesis)}</div>}
+              {a.action && <div className="action-do">🎯 去做：{esc(a.action)}</div>}
+              {a.goSignal && <div className="action-go">✅ 出现这些说明该坚持：{esc(a.goSignal)}</div>}
+              {a.stopSignal && <div className="action-stop">🛑 出现这些说明该收手 / 换路：{esc(a.stopSignal)}</div>}
+              {!a.hypothesis && a.task && <div className="action-task">{esc(a.task)}</div>}
+              {!a.hypothesis && a.why && <div className="action-why">{esc(a.why)}</div>}
             </div>
           </li>
         ))}

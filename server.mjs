@@ -1,4 +1,4 @@
-// 知乎炼金术 · 轻量后端（Node 内置模块，零三方依赖）
+// 山外山 · 轻量后端（Node 内置模块，零三方依赖）
 // 职责：托管前端静态文件 + 代理知乎 API（Secret 仅存后端，绝不进前端）
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import * as zhihu from './zhihu.js';
 import * as oauth from './oauth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST = join(__dirname, 'dist'); // React 构建产物（唯一托管目录；旧版 public/ 原型已删除）
+const DIST = 'E:/kan-dist'; // React 构建产物（唯一托管目录；旧版 public/ 原型已删除）
 
 // 读取 .env（极简实现，避免额外依赖）
 function loadEnv() {
@@ -28,6 +28,8 @@ loadEnv();
 const SECRET = process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET || '';
 const PORT = process.env.PORT || 3000;
 const TTL = Number(process.env.CACHE_TTL || 3600);
+// 直答模型（与 zhihu.js 内部默认值保持一致，可经 OPENAI_MODEL 环境变量覆盖）
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'zhida-fast-1p5';
 // MarkItDown 文档解析服务地址（Python 进程，可选）
 const MD_SERVICE = process.env.MD_SERVICE_URL || 'http://127.0.0.1:8011';
 
@@ -50,6 +52,12 @@ const MIME = {
   '.md': 'text/markdown; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.gif': 'image/gif',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
 };
 
 async function sendJson(res, data, status = 200) {
@@ -116,9 +124,16 @@ async function readUpload(req, limit = 30 * 1024 * 1024) {
   });
 }
 
+// 把前端传来的历史炼金包清单拼成知识库文本（轻量 RAG：不依赖向量库）
+function buildKnowledgeBase(kb) {
+  if (!Array.isArray(kb) || !kb.length) return '（暂无历史炼金包，知识库为空）';
+  return kb.map((k, i) => `【历史 ${i + 1}】${k.topic || '未命名'}\n${k.text || ''}`).join('\n\n');
+}
+
 async function serveStatic(req, res) {
   const clean = req.url.split('?')[0];
   let p = clean === '/' ? '/index.html' : clean;
+  try { p = decodeURIComponent(p); } catch {} // 中文/空格文件名（如 /liukanshan/待机_5秒…gif）需解码才能定位到真实文件
   // 仅托管 dist/（React 构建产物）。未构建时明确报错，避免静默回退到旧版页面
   const filePath = normalize(join(DIST, p));
   if (!filePath.startsWith(DIST)) {
@@ -168,7 +183,9 @@ const server = createServer(async (req, res) => {
       const topic = body.topic || q;
       if (!topic) return sendJson(res, { ok: false, code: 'MISSING_TOPIC', message: '缺少 topic' }, 400);
       let persona = body.persona || { identity: 'pre', industry: 'ai', sub: 'AIGC' };
-      const result = await zhihu.alchemy(SECRET, topic, persona);
+      // 前端按处境卡构造了多角度检索词（buildQueries），此前未透传导致实际只用了 1 个角度
+      const queries = Array.isArray(body.queries) ? body.queries.slice(0, 5) : [];
+      const result = await zhihu.alchemy(SECRET, topic, persona, queries);
       return sendJson(res, { ok: true, data: result });
     }
     if (req.method === 'GET' && url.pathname === '/api/alchemy') {
@@ -177,6 +194,19 @@ const server = createServer(async (req, res) => {
       try { const p = url.searchParams.get('persona'); if (p) persona = JSON.parse(p); } catch {}
       const result = await zhihu.alchemy(SECRET, q, persona);
       return sendJson(res, { ok: true, data: result });
+    }
+
+    // ---- 按自测反馈重生行动地图：把"最信哪一派 / 哪些盲区"喂给模型，生成贴合辨向的验证路线 ----
+    if (req.method === 'POST' && url.pathname === '/api/actions') {
+      let body = {};
+      try { body = await readBody(req); } catch {}
+      const topic = body.topic || '';
+      const roles = Array.isArray(body.roles) ? body.roles : [];
+      const quizResult = body.quizResult || null;
+      const persona = body.persona || {};
+      if (!topic || !roles.length) return sendJson(res, { ok: false, code: 'MISSING', message: '缺少 topic 或 roles' }, 400);
+      const r = await zhihu.generateActions(SECRET, topic, roles, quizResult, persona);
+      return sendJson(res, { ok: true, data: r });
     }
 
     // 模块③-b：文档转文本（调本地 MarkItDown 服务，覆盖 PDF/Word/图片等）
@@ -208,6 +238,24 @@ const server = createServer(async (req, res) => {
       } else {
         return sendJson(res, { ok: false, code: r.reason || 'EXTRACT_FAILED', message: r.message || '解析失败', data: r });
       }
+    }
+
+    // ---- 知识库 / RAG 对话：把历史炼金包作为知识库上下文，AI 引用回答 ----
+    if (req.method === 'POST' && url.pathname === '/api/chat') {
+      let body = {};
+      try { body = await readBody(req, 8_000_000); } catch {}
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const kb = Array.isArray(body.kb) ? body.kb : [];
+      if (!messages.length) return sendJson(res, { ok: false, code: 'EMPTY', message: '消息为空' }, 400);
+      const knowledge = buildKnowledgeBase(kb);
+      const lastUser = messages[messages.length - 1]?.content || '';
+      const sys = `你是「刘看山」，山外山里的 AI 伙伴，像一位长期陪用户翻山、练判断力的朋友。\n用户过去炼过的炼金包（他的私人知识库）如下：\n${knowledge}\n\n回答原则：\n1) 如果用户问到他某次炼金包的内容，请直接引用对应分析作答；\n2) 如果知识库没有相关信息，可基于知乎通用「信谁框架」给建议，并明确说明这是通用建议、不是来自他的历史；\n3) 多结合用户的处境（阶段/目标/城市/时间压力）说话，别泛泛而谈。\n4) 用中文，简洁有温度，语气像一个陪你爬山的伙伴。`;
+      const prompt = sys + '\n\n用户最新问题：' + lastUser;
+      let reply = '';
+      if (SECRET && SECRET.trim()) reply = await zhihu.zhihuZhida(SECRET, prompt, OPENAI_MODEL, 600, '');
+      if (!reply && zhihu.stepfunChat) reply = await zhihu.stepfunChat(prompt);
+      if (!reply) reply = '（当前未配置任何可用的 AI 密钥，无法生成回答。你可以配置 OPENAI_API_KEY 或 STEPFUN_API_KEY，或在「我的地盘」里自己翻看历史炼金包。）';
+      return sendJson(res, { ok: true, data: { reply } });
     }
 
     // ---- 健康检测：验证 OPENAI_API_KEY（旧名 ZHIHU_ACCESS_SECRET 回退）是否可用（走免费额度接口，不烧直答 100 次/天配额） ----
@@ -265,7 +313,7 @@ h2{margin:0 0 10px;font-size:18px;color:#0066ff}
 p{margin:0;color:#666;line-height:1.6}
 </style></head>
 <body>
-<div class="card"><h2>知乎授权成功</h2><p>正在把数据传回知乎炼金术…</p></div>
+<div class="card"><h2>知乎授权成功</h2><p>正在把数据传回山外山…</p></div>
 <script>
 try{window.opener.postMessage({type:'zhihu-oauth',payload:${payload}},'*');}catch(e){console.error(e)}
 setTimeout(()=>window.close(),800);
@@ -285,6 +333,6 @@ setTimeout(()=>window.close(),800);
 });
 
 server.listen(PORT, () => {
-  console.log(`知乎炼金术 running → http://localhost:${PORT}`);
+  console.log(`山外山 running → http://localhost:${PORT}`);
   console.log(SECRET ? '模式：LIVE（已接入知乎真实 API）' : '模式：DEMO（未配置 Access Secret，使用演示数据）');
 });

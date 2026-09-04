@@ -41,3 +41,14 @@ AGENTS.md
 
 # playwright-cli 临时产物（open/snapshot 落在 cwd 的 .playwright-cli/，纯本地调试工件）
 .playwright-cli/
+
+# 服务/调试日志与一次性输出（本次调试产生，非源码，不入库）
+server-boot.log
+server-err.log
+srv_err.log
+srv_out.log
+server.log
+*.out
+
+# 一次性本地调试脚本
+_fix_api.mjs

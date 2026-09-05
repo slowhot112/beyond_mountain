@@ -28,6 +28,9 @@ loadEnv();
 const SECRET = process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET || '';
 const PORT = process.env.PORT || 3000;
 const TTL = Number(process.env.CACHE_TTL || 3600);
+// 直答调用计数（额度保护：决策A 后台预生成接近上限时自动降级为保留初版，手动重做不受限）
+let zhidaAutoCalls = 0;
+const AUTO_REGEN_CAP = 90; // 直答 100/天，留 ~10 次余量给首次炼金与手动重做
 // 直答模型（与 zhihu.js 内部默认值保持一致，可经 OPENAI_MODEL 环境变量覆盖）
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'zhida-fast-1p5';
 // MarkItDown 文档解析服务地址（Python 进程，可选）
@@ -185,7 +188,9 @@ const server = createServer(async (req, res) => {
       let persona = body.persona || { identity: 'pre', industry: 'ai', sub: 'AIGC' };
       // 前端按处境卡构造了多角度检索词（buildQueries），此前未透传导致实际只用了 1 个角度
       const queries = Array.isArray(body.queries) ? body.queries.slice(0, 5) : [];
-      const result = await zhihu.alchemy(SECRET, topic, persona, queries);
+      // 决策B：把历史炼金包透传给炼金，仅带相关条目（后端实体命中判定 + 防串味）
+      const records = Array.isArray(body.records) ? body.records.slice(0, 30) : [];
+      const result = await zhihu.alchemy(SECRET, topic, persona, queries, records);
       return sendJson(res, { ok: true, data: result });
     }
     if (req.method === 'GET' && url.pathname === '/api/alchemy') {
@@ -204,8 +209,15 @@ const server = createServer(async (req, res) => {
       const roles = Array.isArray(body.roles) ? body.roles : [];
       const quizResult = body.quizResult || null;
       const persona = body.persona || {};
+      // auto=1 标记来自"后台预生成"路径，受额度保护约束；手动点"重做"不带此标记，可绕过
+      const auto = !!body.auto;
       if (!topic || !roles.length) return sendJson(res, { ok: false, code: 'MISSING', message: '缺少 topic 或 roles' }, 400);
+      // 额度保护：直答 100/天，接近上限时自动预生成降级为"保留初版"，手动"重做"仍可触发
+      if (auto && zhidaAutoCalls >= AUTO_REGEN_CAP) {
+        return sendJson(res, { ok: false, reason: 'quota', message: '今日直答额度接近上限，已为你保留初版行动地图，可手动点「重做一份行动地图」' });
+      }
       const r = await zhihu.generateActions(SECRET, topic, roles, quizResult, persona);
+      if (auto) zhidaAutoCalls++;
       return sendJson(res, { ok: true, data: r });
     }
 

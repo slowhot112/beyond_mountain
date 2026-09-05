@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Landing from './components/Landing.jsx';
 import Onboarding from './components/Onboarding.jsx';
 import PersonaCard from './components/PersonaCard.jsx';
@@ -33,6 +33,8 @@ export default function App() {
   const [alchemyLoading, setAlchemyLoading] = useState(false);
   const [alchemyStep, setAlchemyStep] = useState('');
   const [quizResult, setQuizResult] = useState(null); // 当次自测结果（立场分布 + 盲区），喂给行动地图
+  const [prefetchedActions, setPrefetchedActions] = useState(null); // 决策A：后台预生成的"吸收辨向"升级版行动地图
+  const [prefetching, setPrefetching] = useState(false);
   const reqId = useRef(0);
   const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
 
@@ -44,6 +46,7 @@ export default function App() {
     const myId = ++reqId.current;
     setError(null);
     setQuizResult(null);
+    setPrefetchedActions(null); // 新一轮分析，清空旧的预生成结果
     setAlchemyLoading(true);
     const steps = ['正在知乎山头拾脚印…', '正在全网找对照脚印…', '正在把不同脚印摆成对照…', '正在给你画脚下验证路线…'];
     let stepIdx = 0;
@@ -59,7 +62,7 @@ export default function App() {
       const data = await api('/api/alchemy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: MODE, topic: topicStr, persona, queries: buildQueries(card) }),
+        body: JSON.stringify({ mode: MODE, topic: topicStr, persona, queries: buildQueries(card), records: (records || []).map((r) => ({ topic: r.topic, ts: r.ts, quiz: r.quiz, roles: r.data?.conflict?.roles })) }),
       });
       if (myId !== reqId.current) return;
       if (!data || (!data.conflict && !data.topic)) throw new Error('返回数据为空或格式异常');
@@ -190,6 +193,43 @@ export default function App() {
     }
   }, [quizResult]);
 
+  // 决策A：答完自测瞬间，后台偷偷预生成"吸收辨向"的升级版行动地图（此时用户还在结果页/山头页，无感零等待）
+  useEffect(() => {
+    if (!quizResult || !quizResult.answeredCount || !data?.conflict?.roles?.length) return;
+    if (prefetchedActions) return; // 已有结果，避免重复触发
+    setPrefetching(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api('/api/actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: data.topic || topic,
+            roles: data.conflict.roles,
+            quizResult,
+            persona: personaPayload ? personaPayload(card) : {},
+            auto: true, // 走额度保护路径：接近上限时自动降级为保留初版
+          }),
+        });
+        if (!cancelled && r && r.actions && r.actions.length) setPrefetchedActions(r.actions);
+      } catch (e) {
+        // 失败则保留初版，不阻断
+      } finally {
+        if (!cancelled) setPrefetching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [quizResult, data, card, prefetchedActions]);
+
+  // 决策B「指出变化」：找出上一条带自测结果的历史存档，供行动地图对比"你判断变了没"
+  const prevRecord = useMemo(() => {
+    if (!records || !records.length) return null;
+    const list = records.filter((r) => r.id !== currentRecordId.current && r.quiz && r.quiz.dominant);
+    list.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+    return list[0] || null;
+  }, [records, quizResult]);
+
   // 打开某条历史存档：把当时的处境卡与结果一起还原，像回到那天
   function openRecord(rec) {
     if (!rec || !rec.data) return;
@@ -307,7 +347,7 @@ export default function App() {
             {step === 'result1' && (
               <>
                 <ResultHead back />
-                <ConflictWall conflict={data.conflict} onNext={() => setStep('result2')} />
+                <ConflictWall conflict={data.conflict} persona={card} onNext={() => setStep('result2')} />
               </>
             )}
             {step === 'result2' && (
@@ -334,7 +374,7 @@ export default function App() {
                 <ResultHead back />
                 {!dom && <div className="dep-note">请先完成【辨向自测】，才能生成专属你的脚下三步。</div>}
                 {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
-                <ActionMap data={data} quizResult={quizResult} persona={card} />
+                <ActionMap data={data} quizResult={quizResult} persona={card} prefetchedActions={prefetchedActions} prefetching={prefetching} prevRecord={prevRecord} />
               </>
             )}
           </>

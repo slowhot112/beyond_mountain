@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { esc, brief, normTitle } from '../lib.js';
+import { esc, brief, normTitle, personaLabel } from '../lib.js';
 
 // 后端偶尔会把 boundary 写成"代表个人观点"这类空话，前端兜底反向生成一条具体边界
 function cleanBoundary(s) {
@@ -109,7 +109,7 @@ function PreviewLine({ s, i }) {
   );
 }
 
-export default function ConflictWall({ conflict, onNext }) {
+export default function ConflictWall({ conflict, persona, onNext }) {
   if (!conflict) return null;
   const [openIdx, setOpenIdx] = useState(null); // 默认全折叠，避免一进来就被单个山头占满屏
 
@@ -121,6 +121,12 @@ export default function ConflictWall({ conflict, onNext }) {
     <section className="card wall">
       <h2>② 众声对照（先看清山势）</h2>
       <p className="muted">下面是知乎上互相交锋的 {conflict.roles.length} 个硬立场。先全部扫一眼标题和一句话摘要，再点开看详情；翻面可见原文梗概。该信谁，下一步再辨。</p>
+
+      {persona && (() => {
+        const pl = personaLabel(persona);
+        if (!pl) return null;
+        return <div className="wall-persona">你的处境：{esc(pl)}（下面每个观点都结合它来呈现，而非泛泛而谈）</div>;
+      })()}
 
       <blockquote className="conflict-summary">{esc(conflict.summary)}</blockquote>
 

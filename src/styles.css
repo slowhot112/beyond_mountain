@@ -850,6 +850,39 @@ a { color: var(--zhihu); }
 .action-regen-note { font-size: 12.5px; color: var(--green); background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 4px 10px; }
 .action-regen-note b { color: #15803d; }
 
+/* 行动地图：8 字段新增样式（去哪儿 / 怎么做 / 做完算成 / 历史 / 变化 / 无感替换提示） */
+.action-history {
+  margin: 0 0 10px; padding: 8px 12px; font-size: 13px; color: #1d4ed8;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px;
+}
+.action-change {
+  margin: 0 0 10px; padding: 9px 12px; font-size: 13px; line-height: 1.6; color: #7c2d12;
+  background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
+}
+.action-change b { color: #c2410c; }
+.action-change .ac-date { color: #9a3412; font-weight: 600; margin-right: 4px; }
+.action-prefetching { margin: 0 0 10px; padding: 8px 12px; font-size: 13px; color: var(--muted); background: #f8fafc; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.action-swap {
+  margin: 0 0 10px; padding: 9px 12px; font-size: 13px; color: #065f46;
+  background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 10px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.action-swap .link-btn { color: #047857; font-weight: 600; }
+.action-when { display: inline-block; margin-right: 8px; padding: 2px 8px; font-size: 12px; font-weight: 600; color: var(--zhihu); background: var(--zhihu-soft); border-radius: 999px; }
+.action-tag { display: inline-block; margin-left: 6px; padding: 2px 8px; font-size: 11.5px; font-weight: 600; color: #b45309; background: #fef3c7; border-radius: 999px; vertical-align: middle; }
+.action-hypo { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.action-where { margin: 4px 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); }
+.action-steps { margin: 4px 0; font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+.action-done { margin: 4px 0; font-size: 13px; line-height: 1.5; color: #047857; }
+.action-go { margin: 2px 0; font-size: 12.5px; line-height: 1.4; color: #15803d; }
+.action-stop { margin: 2px 0; font-size: 12.5px; line-height: 1.4; color: #b91c1c; }
+
+/* 冲突墙：顶部展示用户处境，让观点与处境咬合可见 */
+.wall-persona {
+  margin: 0 0 12px; padding: 10px 14px; font-size: 13.5px; line-height: 1.5; color: var(--zhihu);
+  background: var(--zhihu-soft); border: 1px solid #cfe3ff; border-radius: 12px; font-weight: 600;
+}
+
 /* ---------- landing（工单02：静态刘看山引导页，以下均为追加规则） ---------- */
 .back-row { display: flex; justify-content: flex-start; margin-top: 18px; }
 .landing { text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 24px 20px; margin-top: 0; }

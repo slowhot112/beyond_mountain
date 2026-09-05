@@ -455,7 +455,7 @@ export function pickCorpus(items, total = 8, topic = '') {
 // 多角色对照（B1 伪多 Agent）：单次调用产出多个有独立人设的虚拟答主，各自基于知乎内容给视角并互相质疑。
 // 不综合结论，保留张力；单次调用零额外额度消耗。
 // persona = { identity, industry, sub }（由前端 src/lib.js 的 personaPayload 提供）
-export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = []) {
+export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = [], records = []) {
   if (!hasSecret(secret)) return MOCK.alchemy(topic, persona); // 演示模式：返回精美示例，保证"打开即完整"
   const pt = (typeof persona === 'string')
     ? { identity: 'pre', industry: 'ai', sub: 'AIGC', prompt: '' }
@@ -490,8 +490,11 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
     pt.education ? `用户背景摘要：${pt.education}` : '',
   ].filter(Boolean);
   const contextBlock = contextLines.length ? `\n用户处境卡（用于让回答贴合此人，而非泛泛而谈）：\n${contextLines.map((l) => '- ' + l).join('\n')}\n` : '';
+  // 决策B：接入历史炼金包（只带与本次问题相关的，防串味；无关则完全忽略）
+  const selected = selectHistory(topic, records);
+  const historyBlock = buildHistoryBlock(selected);
 
-  const prompt = `你是一个"判断力陪练"教练，而不是总结机器。${personaPrompt}${contextBlock}
+  const prompt = `你是一个"判断力陪练"教练，而不是总结机器。${personaPrompt}${contextBlock}${historyBlock}
 围绕主题"${topic}"，基于下面来自知乎真实高赞讨论的内容，帮这个具体身份的人看清分歧、长出自己的判断。
 
 严格要求：只返回一个 JSON 对象，不要任何额外文字、不要 markdown 代码块。
@@ -529,14 +532,14 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
     {"scenario": "情境题5：在用户的城市/时间压力/背景下，该优先采信哪一派建议", "options": [{"label": "用 r1 角色真实立场缩写的具体选项", "side": "r1"}, {"label": "用 r2 角色真实立场缩写的具体选项", "side": "r2"}, {"label": "用 r3 角色真实立场缩写的具体选项", "side": "r3"}], "prompt": "你站哪边？理由？", "feedback": "想逼出的盲区", "analysis": "详细解析"}
   ],
   "actions": [
-    {"when": "今天", "hypothesis": "要验证的关键判断（一句话、可被事实推翻）", "action": "今天就能做的1件具体小事（可验证、带城市/时间限定）", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r1"},
-    {"when": "本周内", "hypothesis": "要验证的关键判断", "action": "本周内完成的具体信息收集/验证动作（带城市/时间限定）", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r2"},
-    {"when": "本月结束前", "hypothesis": "要验证的关键判断", "action": "本月内落地的1次真实反馈/验证（可约人、可查数据）", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r3"},
-    {"when": "三个月内", "hypothesis": "要验证的关键判断", "action": "三个月内的关键决策点动作", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r1"}
+    {"when": "今天", "hypothesis": "要验证的关键判断（一句话、可被事实推翻）", "where": "去哪儿做：具体平台/渠道+搜什么关键词", "steps": "怎么操作：一步步、带明确数字（看几个/约几个人/列几份）", "done": "做完算不算成：交付什么、怎么算做成", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r1"},
+    {"when": "本周内", "hypothesis": "要验证的关键判断", "where": "去哪儿做：具体平台/渠道+搜什么关键词", "steps": "怎么操作：一步步、带明确数字（看几个/约几个人/列几份）", "done": "做完算不算成：交付什么、怎么算做成", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r2"},
+    {"when": "本月结束前", "hypothesis": "要验证的关键判断", "where": "去哪儿做：具体平台/渠道+搜什么关键词", "steps": "怎么操作：一步步、带明确数字（看几个/约几个人/列几份）", "done": "做完算不算成：交付什么、怎么算做成", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r3"},
+    {"when": "三个月内", "hypothesis": "要验证的关键判断", "where": "去哪儿做：具体平台/渠道+搜什么关键词", "steps": "怎么操作：一步步、带明确数字（看几个/约几个人/列几份）", "done": "做完算不算成：交付什么、怎么算做成", "goSignal": "出现这些说明该坚持", "stopSignal": "出现这些说明该收手/换路", "role": "r1"}
   ]
 }
 
-约束：只返回 JSON；roles 2~4 个；每个角色 name 必须是"谁在说"的真实身份（严禁用文章标题/问句/链接/泛称当名字，见上文 name 字段说明）；每个角色必须有 matchReason 和至少 1 条 sources；rebuts 至少质疑另一角色；内容紧紧围绕用户的问题（主题）展开，绝不要套用建档行业的默认设定。不同角色引用的 sources 尽量不要重复；若真实来源不足，宁可让角色少引一篇，也不要把同一篇文章硬塞给多个角色。quiz 必须包含 5 道题，分别测：1)第一反应/本能立场；2)边界识别（什么时候某派不成立）；3)互驳判断（哪条质疑最有力）；4)论据可信度（哪条最依赖未验证前提）；5)处境取舍（在目标城市/时间压力/背景下该优先采信谁）。每题 options 数量必须与 roles 数量一致，side 用角色 id（r1/r2/r3...）；【关键】每题的每个选项 label 必须是"该选项对应角色的真实立场"的缩写（直接引用该角色的 stance / coreArg 要点），禁止 5 道题用同一套模板化文案，禁止出现"支持A派/反对B派"这类空泛标签，每题的 option 文案必须因题而异、各自体现对应派的真实观点；必须有 feedback 和 analysis，不要有 correctSide 这种标准答案字段；quiz 第 1 题的情境必须直接来自用户最困惑的问题与真实处境，而非通用话术。行动地图必须给出 4~6 条 action，每条用「when / hypothesis / action / goSignal / stopSignal / role」六字段：when=时间窗口（结合时间压力：短于一星期用"2小时内/今天/本周"，一个月左右用"今天/本周/本月"，三个月以上用"本周/本月/三个月内"，未填时首条必须"明确时间窗口"）；hypothesis=要验证的一个关键判断（一句话、可被事实推翻）；action=结合用户「目标城市/时间压力/最困惑/背景摘要」的具体、可验证、带地点与时间限定的动作；goSignal=出现哪些信号说明该坚持；stopSignal=出现哪些信号说明该收手/换路；role=该任务主要服务验证哪一派（角色 id r1/r2/... 或 "all"），至少让不同角色都有对应任务。
+约束：只返回 JSON；roles 2~4 个；每个角色 name 必须是"谁在说"的真实身份（严禁用文章标题/问句/链接/泛称当名字，见上文 name 字段说明）；每个角色必须有 matchReason 和至少 1 条 sources；rebuts 至少质疑另一角色；内容紧紧围绕用户的问题（主题）展开，绝不要套用建档行业的默认设定。不同角色引用的 sources 尽量不要重复；若真实来源不足，宁可让角色少引一篇，也不要把同一篇文章硬塞给多个角色。quiz 必须包含 5 道题，分别测：1)第一反应/本能立场；2)边界识别（什么时候某派不成立）；3)互驳判断（哪条质疑最有力）；4)论据可信度（哪条最依赖未验证前提）；5)处境取舍（在目标城市/时间压力/背景下该优先采信谁）。每题 options 数量必须与 roles 数量一致，side 用角色 id（r1/r2/r3...）；【关键】每题的每个选项 label 必须是"该选项对应角色的真实立场"的缩写（直接引用该角色的 stance / coreArg 要点），禁止 5 道题用同一套模板化文案，禁止出现"支持A派/反对B派"这类空泛标签，每题的 option 文案必须因题而异、各自体现对应派的真实观点；必须有 feedback 和 analysis，不要有 correctSide 这种标准答案字段；quiz 第 1 题的情境必须直接来自用户最困惑的问题与真实处境，而非通用话术。行动地图必须给出 4~6 条 action，每条用「when / hypothesis / where / steps / done / goSignal / stopSignal / role」八字段：when=时间窗口（结合时间压力：短于一星期用"2小时内/今天/本周"，一个月左右用"今天/本周/本月"，三个月以上用"本周/本月/三个月内"，未填时首条必须"明确时间窗口"）；hypothesis=要验证的一个关键判断（一句话、可被事实推翻）；where=去哪儿做（具体平台/渠道+搜什么关键词，如 BOSS直聘·搜"数据分析师"）；steps=怎么操作（一步步、带明确数字，如"找 3 个岗位→抄硬性要求→逐条对照"）；done=做完算不算成（交付什么、怎么算做成，可验证的产出物）；goSignal=出现哪些信号说明该坚持；stopSignal=出现哪些信号说明该收手/换路；role=该任务主要服务验证哪一派（角色 id r1/r2/... 或 "all"），至少让不同角色都有对应任务。
 
 内容：
 ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
@@ -571,7 +574,7 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
   // 直答彻底失败：用真实搜索结果兜底（绝不退回关键词模板），保证"依靠知乎真实内容"
   if (!json) {
     console.warn('[alchemy] all zhida attempts failed, real-data fallback for', topic);
-    return realDataFallback(items, topic, pt);
+    return realDataFallback(items, topic, pt, selected);
   }
 
   // 角色数仍 <2：用真实搜索结果补全（而非模板）
@@ -629,6 +632,7 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     ok: true, mock: false,
     ...json,
     conflict: { ...(json.conflict || {}), roles },
+    usedHistory: selected.map((s) => s.rec.topic), // 本次参考了哪些历史（前端展示用）
     // 来源清单也做站内 + 全网混合，让前端"来源区"直观体现全网搜已接入
     sources: [...zhihuItems.slice(0, 4), ...webItems.slice(0, 2)].slice(0, 6),
   };
@@ -858,15 +862,32 @@ function fallbackActions(topic, pt, rolesLen, bias) {
     ];
   }
 
+  // 兜底：为每条补上「去哪儿 / 怎么操作 / 完成标准」，让结构完整、前端统一渲染（steps 复用上面已有的 action 文案）
+  const whereByBucket = {
+    urgent: '纸笔 / 手机备忘录（先逼自己表个态）',
+    short: `${city || '招聘网站'} / BOSS直聘 / 脉脉 / 知乎`,
+    long: '知乎 / 公众号 / 即刻 / 脉脉 / 校友群',
+  };
+  const doneByBucket = {
+    urgent: '完成标准：写完判断草稿，并标出最没把握的 1 个前提',
+    short: '完成标准：拿到至少 1 个可判断的明确信号（肯定或否定都算数）',
+    long: '完成标准：产出 1 份可回看的笔记 / 对照表 / 清单',
+  };
+  core = core.map((a) => ({
+    ...a,
+    where: whereByBucket[bucket] || whereByBucket.long,
+    steps: a.action || '',
+    done: doneByBucket[bucket] || doneByBucket.long,
+  }));
   return core.slice(0, 5);
 }
 
-// 把行动统一成「when / hypothesis / action / goSignal / stopSignal / role」六字段结构（兼容旧 task/why）
-function normalizeActions(actions, roles, pt, topic) {
+// 把行动统一成「when / hypothesis / where / steps / done / goSignal / stopSignal / role」八字段结构（兼容旧 task/why/action）
+export function normalizeActions(actions, roles, pt, topic) {
   if (!Array.isArray(actions) || !actions.length) return [];
   const roleIds = (roles || []).map((r) => r.id);
   return actions.map((a, i) => {
-    const hasNew = a.action || a.hypothesis || a.goSignal || a.stopSignal;
+    const hasNew = a.action || a.hypothesis || a.goSignal || a.stopSignal || a.where || a.steps || a.done;
     const base = hasNew ? a : {
       when: a.when || '',
       hypothesis: a.hypothesis || a.why || '',
@@ -879,7 +900,9 @@ function normalizeActions(actions, roles, pt, topic) {
     return {
       when: base.when || '',
       hypothesis: base.hypothesis || '',
-      action: base.action || '',
+      where: base.where || '',
+      steps: base.steps || base.action || '', // 旧六字段的 action 平滑过渡为 steps
+      done: base.done || '',
       goSignal: base.goSignal || '',
       stopSignal: base.stopSignal || '',
       role: roleOk ? base.role : `r${(i % Math.max(1, roleIds.length)) + 1}`,
@@ -904,6 +927,81 @@ function quizBias(qr) {
   return { dominantId, uncertain: qr.uncertainSides || [] };
 }
 
+// ---------- 决策B：历史炼金包接入（实体命中判定，防串味） ----------
+// 同义词归并：让"换赛道"≈"转行"、"找工作"≈"求职"，避免近义不同词被算成无关
+const HISTORY_SYN = [
+  ['转行', '换赛道', '跳槽', '转型', '转岗', '换行', '转专业', '跨行'],
+  ['求职', '找工作', '应聘', '招聘', '找全职', '找实习', '投简历'],
+  ['考研', '升学', '保研', '留学', '读研'],
+  ['考公', '公务员', '体制内', '事业单位', '体制'],
+  ['副业', '搞钱', '赚钱', '增收', '变现'],
+];
+const _synMap = (() => { const m = new Map(); HISTORY_SYN.forEach((g) => g.forEach((w) => m.set(w, g[0]))); return m; })();
+export function historyKeywords(topic) {
+  if (!topic) return new Set();
+  const stop = /吗|呢|是不是|有没有|到底|为什么|是否|该不该|值得|适合|怎么|如何|能不能|可以吗|行不行|靠谱吗|前景|现状|好吗|难吗|？|\?|！|。|，|、/g;
+  const t = String(topic).replace(stop, ' ').trim();
+  const segs = t.match(/[一-龥]{2,}/g) || [];
+  const set = new Set();
+  segs.forEach((s) => {
+    const maxLen = Math.min(4, s.length);
+    for (let len = 2; len <= maxLen; len++) for (let i = 0; i + len <= s.length; i++) set.add(s.slice(i, i + len));
+  });
+  const out = new Set();
+  set.forEach((w) => out.add(_synMap.get(w) || w));
+  return out;
+}
+// 选相关历史：当前问题与历史问题共享 ≥1 个核心实体词即算相关，最多带 3 条；零命中则不带（串味从根上防住）
+export function selectHistory(topic, records) {
+  if (!topic || !Array.isArray(records) || !records.length) return [];
+  const cur = historyKeywords(topic);
+  if (!cur.size) return [];
+  return records
+    .filter((r) => r && r.topic && r.topic !== topic)
+    .map((r) => {
+      const hist = historyKeywords(r.topic);
+      let hits = 0;
+      cur.forEach((w) => { if (hist.has(w)) hits++; });
+      return { rec: r, hits };
+    })
+    .filter((x) => x.hits >= 1)
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, 3);
+}
+function histRoleName(roles, id) {
+  if (!Array.isArray(roles)) return id;
+  return roles.find((x) => x.id === id)?.name || id;
+}
+function summarizeHistory(rec) {
+  const t = rec.topic || '未命名';
+  const ts = rec.ts ? new Date(rec.ts) : null;
+  const date = ts ? `${ts.getMonth() + 1}/${ts.getDate()}` : '';
+  const quiz = rec.quiz || (rec.data && rec.data.quiz) || null;
+  const roles = (rec.data && rec.data.conflict && rec.data.conflict.roles) || [];
+  let dom = ''; let blind = '';
+  if (quiz) {
+    const domId = Array.isArray(quiz.dominant) ? quiz.dominant[0] : (quiz.dominant && quiz.dominant.top ? quiz.dominant.top[0] : null);
+    if (domId) dom = histRoleName(roles, domId);
+    const blinds = (quiz.uncertainSides || []).filter((s) => s !== 'custom');
+    if (blinds.length) blind = blinds.map((s) => histRoleName(roles, s)).filter(Boolean).join('、');
+  }
+  const parts = [];
+  if (date) parts.push(date);
+  parts.push(`「${t}」`);
+  if (dom) parts.push(`最信「${dom}」`);
+  if (blind) parts.push(`盲区「${blind}」未补`);
+  return parts.join('：');
+}
+export function buildHistoryBlock(selected) {
+  if (!selected || !selected.length) return '';
+  const lines = selected.map((s) => `- ${summarizeHistory(s.rec)}`).join('\n');
+  return `
+你过去炼过的、与本次问题相关的炼金包（★仅供参考；若与本次问题无关，请完全忽略，绝不要被它带偏结论，也不要套用它的行业默认设定）：
+${lines}
+请据此：① 不要再重复验证用户早已倾向的那一派，直接推进到下一步验证；② 注意用户上次的盲区视角，这次优先补上；③ 若本次与上次判断有出入，在行动里点出「相比上次，你的判断变了 / 没变」。
+`;
+}
+
 // 根据自测反馈重做行动地图：把"最信哪一派 / 哪些盲区"喂给模型，生成贴合其辨向的验证路线
 export async function generateActions(secret, topic, roles, quizResult, persona = {}) {
   const rs = Array.isArray(roles) ? roles : [];
@@ -926,10 +1024,10 @@ ${quizSummary}
 严格要求：只返回一个 JSON 对象，不要任何额外文字。
 {
   "actions": [
-    {"when":"时间窗口","hypothesis":"要验证的关键判断（一句话、可被事实推翻）","action":"结合用户处境的具体、可验证、带城市/时间限定的动作","goSignal":"出现这些说明该坚持","stopSignal":"出现这些说明该收手/换路","role":"该任务主要验证哪一派（角色id或all）"}
+    {"when":"时间窗口","hypothesis":"要验证的关键判断（一句话、可被事实推翻）","where":"去哪儿做：具体平台/渠道+搜什么关键词","steps":"怎么操作：一步步、带明确数字（看几个/约几个人/列几份）","done":"做完算不算成：交付什么、怎么算做成","goSignal":"出现这些说明该坚持","stopSignal":"出现这些说明该收手/换路","role":"该任务主要验证哪一派（角色id或all）"}
   ]
 }
-约束：给出 4~6 条 action，用 when/hypothesis/action/goSignal/stopSignal/role 六字段。必须针对用户的辨向结果：优先验证他"最信的那一派"是否站得住（给 1~2 条 role=${dominantId || 'r1'} 的任务）；针对他标了"不确定"的盲区视角，各给至少 1 条补全任务（role 填对应 id）；其余任务覆盖其他派。时间窗口结合用户时间压力（短于一星期用"2小时内/今天/本周"，一个月左右"今天/本周/本月"，三个月以上"本周/本月/三个月内"，未填则首条"明确时间窗口"）。每条都要具体、可验证、带地点与时间限定，不要泛泛而谈。`;
+约束：给出 4~6 条 action，用 when/hypothesis/where/steps/done/goSignal/stopSignal/role 八字段。where=去哪儿做（具体平台/渠道+搜什么关键词）；steps=怎么操作（一步步、带明确数字，如"找 3 个岗位→抄要求→对照"）；done=做完算不算成（交付什么、可验证的产出物）。必须针对用户的辨向结果：优先验证他"最信的那一派"是否站得住（给 1~2 条 role=${dominantId || 'r1'} 的任务）；针对他标了"不确定"的盲区视角，各给至少 1 条补全任务（role 填对应 id）；其余任务覆盖其他派。时间窗口结合用户时间压力（短于一星期用"2小时内/今天/本周"，一个月左右"今天/本周/本月"，三个月以上"本周/本月/三个月内"，未填则首条"明确时间窗口"）。每条都要具体、可验证、带地点与时间限定，不要泛泛而谈。`;
 
   const startedAt = Date.now();
   const BUDGET = 15000;
@@ -961,7 +1059,7 @@ function makeSearchStats({ queries, zhihuFound, webFound, zhihuChosen, webChosen
 
 // 直答彻底失败时的真实数据兜底：仍返回合法结构，内容全部来自真实知乎搜索
 // export：供 scripts/fallback-check.mjs 做回归断言（长文截断 + 选项数量）
-export function realDataFallback(items, topic, pt) {
+export function realDataFallback(items, topic, pt, selected = []) {
   const picked = pickCorpus(items, 10, topic); // 先按用户问题相关性加权精选
   // 若与问题直接相关的素材足够，角色就只用这些，彻底排除"建档行业"残留的无关立场
   const kws = topicKeywords(topic);
@@ -1013,6 +1111,7 @@ export function realDataFallback(items, topic, pt) {
   return {
     ok: true, mock: false, fallback: true, lowConfidence,
     topic,
+    usedHistory: (selected || []).map((s) => s.rec.topic), // 兜底模式也告诉前端：本次参考了哪些历史（防串味）
     searchStats: makeSearchStats({
       queries: 1,
       zhihuFound,

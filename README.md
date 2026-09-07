@@ -43,24 +43,29 @@
 ## 本地运行
 
 ```bash
-# 1. 安装依赖并构建前端（后端只托管 dist/，未构建会 404）
+# 一步安装
 npm install
-npm run build
 
-# 2. 启动 Node 后端（静态托管 + API 代理），默认 3000
-npm start
-
-# 开发模式（可选）：另开终端，Vite 热更新，默认 5173
+# 一条命令同时启动 前端热更新 + 后端 API（推荐日常开发用）
+# 前端页面 → http://localhost:5173  （改代码即时刷新）
+# 后端 API  → http://localhost:3000   （由 dev.mjs 自动拉起；3000 被占用会自动换端口并指好代理）
 npm run dev
+
+# 生产模式（构建 + 单进程启动，等价于线上形态）
+# 页面与 API 都在 http://localhost:3000
+npm run build
+npm start
 ```
 
-> 知乎 API Secret 放在项目根目录 `.env`：`OPENAI_API_KEY=你的密钥`（旧名 `ZHIHU_ACCESS_SECRET` 仍兼容；直答端点/模型可用 `OPENAI_BASE_URL` / `OPENAI_MODEL` 覆盖，默认即知乎直答）。
+> 知乎 API Secret 放在项目根目录 `.env`（参考 `.env.example`）：`OPENAI_API_KEY=你的密钥`（旧名 `ZHIHU_ACCESS_SECRET` 仍兼容；直答端点/模型可用 `OPENAI_BASE_URL` / `OPENAI_MODEL` 覆盖，默认即知乎直答）。
 > 没有密钥也能跑（自动走演示数据，方便体验）。
 
 ## 部署
 
-单进程 Node 服务，**Railway / Render 一键部署**，步骤与注意事项见 `docs/DEPLOY.md`。
-⚠️ 部署必须执行 `npm run build` 生成 `dist/`（Railway 会自动构建；Render 需填 Build Command）。
+单进程 Node 服务，**Railway 推荐**（Vercel 不适合本架构，原因见 `docs/DEPLOY.md`）。仓库已备好一键部署所需：
+`nixpacks.toml`（自动执行 `npm ci` → `npm run build` → `node server.mjs`）+ `.env.example`（环境变量清单）。
+连上 GitHub 仓库即可部署，步骤见 `docs/DEPLOY.md`。
+⚠️ 部署必须生成 `dist/`：构建由 nixpacks 自动执行，无需手动干预。
 
 ## 接口一览（统一 REST 信封）
 

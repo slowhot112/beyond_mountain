@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "description": "山外山 · 知乎炼金术（React + Vite 前端 + Node 后端代理）",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "node dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node server.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.mjs"

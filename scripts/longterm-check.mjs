@@ -35,14 +35,15 @@ const r2 = pickCorpus(cold, 8);
 ok(r2.corpus.length === 8, '总数补满 8 条');
 ok(r2.corpus.filter((x) => x.source === 'web').length >= 6, '站内只有1条时，多余名额让给全网');
 
-console.log('# 选料 — 两边都充足时各占一半');
+console.log('# 选料 — 两边都充足时知乎为主体（全网最多 1/4，约 3:1）');
 const rich = [
   zh(4, 300, 10, 'Z1'), zh(4, 200, 8, 'Z2'), zh(4, 100, 5, 'Z3'), zh(3, 50, 2, 'Z4'), zh(3, 20, 1, 'Z5'), zh(3, 10, 0, 'Z6'),
   web(4, 'W1'), web(4, 'W2'), web(3, 'W3'), web(3, 'W4'), web(2, 'W5'), web(2, 'W6'),
 ];
 const r3 = pickCorpus(rich, 8);
-ok(r3.corpus.filter((x) => x.source !== 'web').length === 4, '知乎取 4 条');
-ok(r3.corpus.filter((x) => x.source === 'web').length === 4, '全网取 4 条');
+ok(r3.corpus.filter((x) => x.source !== 'web').length === 6, '知乎取 6 条');
+ok(r3.corpus.filter((x) => x.source === 'web').length === 2, '全网取 2 条（≤ 1/4）');
+ok(r3.corpus.length === 8, '总数补满 8 条');
 
 console.log('# 存档 — 上限淘汰');
 const many = Array.from({ length: 35 }, (_, i) => ({ id: 'r' + (i + 1), ts: i + 1, v: 1, topic: 't' + (i + 1) }));

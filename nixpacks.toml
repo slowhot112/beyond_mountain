@@ -1,0 +1,12 @@
+# Railway（Nixpacks 构建器）显式构建/启动配置
+# 目的：保证每次部署都先 npm run build 生成 dist/，再 node server.mjs 启动，
+# 避免平台默认行为漏掉构建导致页面 404。
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "node server.mjs"

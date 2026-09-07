@@ -52,10 +52,11 @@ check('最强论点长度 ≤125', maxCore <= 125, `maxCoreArg=${maxCore}`);
 check('角色名用文章观点摘要、作者退为副标题',
   roles.length > 0 && roles.every((r) => r.name && r.name !== r.form),
   roles.map((r) => `${r.name}/${r.form}`).join(' , '));
-check('行动地图 3~5 条且带城市/时间限定',
-  (out.actions || []).length >= 3 && (out.actions || []).length <= 5
-    && out.actions.some((a) => a.task.includes('北京') || a.task.includes('三个月')),
-  `actions=${(out.actions || []).length}`);
+check('行动地图 3~8 条且每条是八字段（when/hypothesis/where/steps/done/goSignal/stopSignal/role），带城市限定',
+  Array.isArray(out.actions) && out.actions.length >= 3 && out.actions.length <= 8
+    && out.actions.every((a) => a && a.when && a.hypothesis && a.where && a.steps && a.done && a.goSignal && a.stopSignal && a.role)
+    && out.actions.some((a) => JSON.stringify(a).includes('北京')),
+  `actions=${(out.actions || []).length} 首条 when=${out.actions?.[0]?.when}`);
 
 // 来源去重：items 数量足够时，不同角色的 sourceItems url 不应重复
 const urls = roles.flatMap((r) => (r.sourceItems || []).map((it) => it.url));
@@ -67,17 +68,20 @@ const lowOut = realDataFallback(items.slice(0, 1), '继续深造还是进大厂'
 check('内容不足时标记 lowConfidence', lowOut.lowConfidence === true, `lowConfidence=${lowOut.lowConfidence}`);
 check('内容不足时 summary 给出诚实提示', (lowOut.conflict?.summary || '').includes('直接相关'), lowOut.conflict?.summary);
 
-// 行动地图按时间压力变化
+// 行动地图按时间压力分桶：未填/三个月以上 → 12 周六段（6 条）；一个月左右 → 6 周（5 条）；一周内 → 压缩到 3 条
 const timeCases = [
-  { tp: '', want: '明确你的时间窗口', label: '未填时间' },
-  { tp: '一周内', want: '2 小时内', label: '短于一星期' },
-  { tp: '一个月', want: '本周内', label: '一个月左右' },
-  { tp: '三个月以上', want: '本周内', label: '三个月以上' },
+  { tp: '', want: 6, when: '第1~2周', label: '未填时间' },
+  { tp: '一周内', want: 3, when: '第1周', label: '短于一星期' },
+  { tp: '一个月', want: 5, when: '第1周', label: '一个月左右' },
+  { tp: '三个月以上', want: 6, when: '第1~2周', label: '三个月以上' },
 ];
 for (const tc of timeCases) {
   const tOut = realDataFallback(items, '继续深造还是进大厂', { ...pt, timePressure: tc.tp });
-  const tasks = (tOut.actions || []).map((a) => a.task).join(' ');
-  check(`时间压力「${tc.label}」时任务含「${tc.want}」`, tasks.includes(tc.want), `tasks=${tasks.slice(0, 120)}`);
+  const acts = tOut.actions || [];
+  const firstWhen = acts[0]?.when || '';
+  check(`时间压力「${tc.label}」→ ${tc.want} 条动作、从「${tc.when}」开始`,
+    acts.length === tc.want && firstWhen.startsWith(tc.when),
+    `n=${acts.length} when=${firstWhen}`);
 }
 
 console.log('\n--- 第 1 题预览 ---');

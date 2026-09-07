@@ -1,9 +1,11 @@
 // 共享数据与工具函数（从原 app.js 平移，改用 ES 模块导出）
 
 // ---------- 统一 API 客户端（REST envelope：{ok, data} / {ok, code, message}） ----------
-// 默认 50s 超时（覆盖后端 alchemy 最坏 ~40s 兜底），避免慢请求下按钮一直转圈
+// 默认 120s 超时。实测（2026-09-05）后端 alchemy 单次耗时 29s~80s：
+// 搜索阶段并行 ~15s（结果缓存 1h）+ 直答阶段最多 2 次尝试、每次 40s 超时，最坏可达 ~115s。
+// 旧值 70s 会在后端仍正常计算时提前 abort，导致"明明算出来了却给用户报错"，故上调留足余量。
 export async function api(path, opts = {}) {
-  const timeout = opts.timeout || 70000;
+  const timeout = opts.timeout || 120000;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -272,6 +274,29 @@ export function saveActions(d, i, val) {
   try { localStorage.setItem(actKey(d), JSON.stringify(o)); } catch {}
 }
 
+// ---------- 完整路线（roadmap v2）：任务勾选 + 现实回填，独立于旧 actions ----------
+export function roadKey(d) { return 'alchemy:road:' + ((d && d.topic) || ''); }
+export function loadRoad(d) {
+  try { return JSON.parse(localStorage.getItem(roadKey(d)) || '{}'); } catch { return {}; }
+}
+export function saveRoad(d, taskKey, patch) {
+  const o = loadRoad(d);
+  o[taskKey] = { ...(o[taskKey] || {}), ...patch };
+  try { localStorage.setItem(roadKey(d), JSON.stringify(o)); } catch {}
+}
+export function roadTaskKey(phaseIdx, taskIdx) { return 'p' + phaseIdx + 't' + taskIdx; }
+// roadmap 任务平铺（客户端版；旧 UI / 摘要复用）
+export function flattenRoadmap(roadmap) {
+  if (!roadmap || !Array.isArray(roadmap.phases)) return [];
+  const out = [];
+  (roadmap.phases || []).forEach((p) => {
+    (p.tasks || []).forEach((t) => {
+      out.push({ ...t, when: t.when || p.week || '', _phase: p.title || '' });
+    });
+  });
+  return out;
+}
+
 // ---------- 历史炼金包（完整存档，可回看） ----------
 // 存的是一整次分析的完整快照（处境卡 + 结果 + 自测），刷新或关掉页面都不丢。
 // v 是存档格式版本号：以后改结构时，老存档照样能读出来，不会打不开。
@@ -329,6 +354,17 @@ export function updateRecordQuiz(id, quiz) {
     localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
   } catch {}
 }
+// 完整路线生成成功后写回存档：回看历史时直接展示当时路线，不重复消耗直答
+export function updateRecordRoadmap(id, roadmap) {
+  try {
+    const list = loadRecords();
+    const i = list.findIndex((r) => r.id === id);
+    if (i < 0 || !roadmap) return;
+    const rec = list[i];
+    list[i] = normalizeRecord({ ...rec, data: { ...(rec.data || {}), roadmap } });
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
+  } catch {}
+}
 
 // 导出 Markdown
 export function exportMd(d) {
@@ -346,8 +382,46 @@ export function exportMd(d) {
   (d.quiz || []).forEach((q, i) => {
     md += `${i + 1}. ${q.scenario}\n   - 你的立场：${q.prompt}\n   - 反馈：${q.feedback}\n`;
   });
-  md += `\n## 行动地图\n`;
-  (d.actions || []).forEach((a) => { md += `- [ ] ${a.task} —— ${a.why}\n`; });
+  if (d.roadmap && Array.isArray(d.roadmap.phases) && d.roadmap.phases.length) {
+    md += `\n## 完整路线（决策验证 · 先验证判断，再下结论）\n`;
+    if (d.roadmap.goal && d.roadmap.goal.text) md += `> 终点：${d.roadmap.goal.text}\n`;
+    if (d.roadmap.generatedAt) {
+      const dt = new Date(d.roadmap.generatedAt);
+      md += `> 依据 ${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} 检索的真实资料整理；投递前请再核一眼最新 JD。\n`;
+    }
+    md += `\n`;
+    d.roadmap.phases.forEach((p) => {
+      md += `### 第 ${p.no || ''} 段（${p.week || ''}）：${p.title || ''}\n`;
+      if (p.focus) md += `> 这阶段要办成：${p.focus}\n`;
+      if (p.phaseDone) md += `> 做到什么算过：${p.phaseDone}\n\n`;
+      (p.tasks || []).forEach((a) => {
+        md += `- [ ] 验证：${a.hypothesis || ''}\n`;
+        md += `  - 去哪儿：${a.where || ''}\n`;
+        md += `  - 怎么做：${a.steps || ''}\n`;
+        md += `  - 做完算成：${a.done || ''}\n`;
+        if (a.goSignal) md += `  - 该坚持：${a.goSignal}\n`;
+        if (a.stopSignal) md += `  - 该收手：${a.stopSignal}\n`;
+        if (a.ev && a.ev.length) md += `  - 依据：${a.ev.map((e) => e.title).join('、')}\n`;
+        else if (a.evVerify) md += `  - 依据：此步主要靠你去拿一手事实（不依赖网络资料）\n`;
+      });
+    });
+    const grad = d.roadmap.graduation;
+    if (grad) {
+      md += `\n### 毕业检查表\n`;
+      (grad.checklist || []).forEach((c) => { md += `- [ ] ${c.text}（拿什么验：${c.verify || ''}）\n`; });
+      if (Array.isArray(grad.judge3)) md += `\n### 结束时只看三件事\n${grad.judge3.map((s) => `- ${s}`).join('\n')}\n`;
+    }
+  } else {
+    md += `\n## 行动地图（验证卡片）\n`;
+    (d.actions || []).forEach((a) => {
+      md += `- [ ] ${a.hypothesis || a.steps || a.action || a.task || ''}\n`;
+      if (a.where) md += `  - 去哪儿：${a.where}\n`;
+      if (a.steps) md += `  - 怎么做：${a.steps}\n`;
+      if (a.done) md += `  - 做完算成：${a.done}\n`;
+      if (a.goSignal) md += `  - 该坚持：${a.goSignal}\n`;
+      if (a.stopSignal) md += `  - 该收手：${a.stopSignal}\n`;
+    });
+  }
   md += `\n## 知乎来源\n`;
   (d.sources || []).forEach((s) => { md += `- [${s.title}](${s.url}) — ${s.author || ''}\n`; });
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
@@ -372,10 +446,14 @@ export function recordToText(rec) {
       if (arg) parts.push(`- ${name}：${arg}`);
     });
   }
-  const acts = d.actions || [];
-  if (acts.length) {
+  // 有完整路线（roadmap）时优先用它；否则用平铺 actions（8 字段或旧 task/why）
+  const tasks = (d.roadmap && flattenRoadmap(d.roadmap)) || d.actions || [];
+  if (tasks.length) {
     parts.push('行动地图：');
-    acts.forEach((a) => { if (a.task) parts.push(`- ${a.task}`); });
+    tasks.forEach((a) => {
+      const line = a.hypothesis || a.steps || a.action || a.task || '';
+      if (line) parts.push(`- ${line}`);
+    });
   }
   return parts.join('\n');
 }

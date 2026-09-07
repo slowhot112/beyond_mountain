@@ -15,6 +15,16 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
 
   return (
     <section className="card personacard">
+      {alchemyLoading && (
+        <div className="alchemy-loader fullscreen">
+          <img
+            src={`/liukanshan/${encodeURIComponent('电脑_6秒_320x320_20fps_透明.gif')}`}
+            alt=""
+            className="alchemy-gif"
+          />
+          <span>{alchemyStep || '进山寻路中…'}</span>
+        </div>
+      )}
       <h2>② 确认路标</h2>
       <p className="muted">这些坐标会决定山外山去知乎的哪些山头拾脚印。所有条件都可修改，不上传简历也能继续。</p>
 
@@ -45,8 +55,8 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
       <div className="pc-actions">
         {!editing ? (
           <>
-            <button className="ghost" onClick={() => setEditing(true)}>调整路标</button>
-            <button className="ghost" onClick={onUploadResume} disabled={resumeLoading}>
+            <button className="ghost" onClick={() => setEditing(true)} disabled={alchemyLoading}>调整路标</button>
+            <button className="ghost" onClick={onUploadResume} disabled={resumeLoading || alchemyLoading}>
               {resumeLoading
                 ? (ocrProgress > 0 ? `图片识别中 ${ocrProgress}%…` : '整理中…')
                 : '上传简历，整理行囊'}
@@ -54,11 +64,11 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
             <button className="ghost" onClick={() => {
               const text = window.prompt('请直接粘贴简历或经历文字（支持从 PDF/Word/图片里复制出来的文字）：');
               if (text) onPasteResume(text);
-            }} disabled={resumeLoading}>
+            }} disabled={resumeLoading || alchemyLoading}>
               粘贴经历文字
             </button>
             <button className="primary" onClick={() => onConfirm(card)} disabled={alchemyLoading}>
-              {alchemyLoading ? (alchemyStep || '进山寻路中…') : '进山，听不同的声音'}
+              {alchemyLoading ? '进山寻路中…' : '进山，听不同的声音'}
             </button>
             <button className="ghost" onClick={onLoadSample} disabled={resumeLoading || alchemyLoading}>没头绪？先装个样例行囊</button>
             <span className="muted" style={{ fontSize: 12 }}>支持 PDF/DOCX/TXT/图片(JPG·PNG)</span>

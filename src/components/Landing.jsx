@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 // 「我的山径」：有历史时展示成长山径（时间线节点），无历史也露出「暂无记录」引导，
 // 让"长期陪伴"的概念随时看得见。知识库对话已统一由右下角常驻的刘看山承担。
-export default function Landing({ onStart, records = [], onOpen }) {
+export default function Landing({ onStart, records = [], onOpen, onImport }) {
+  const fileRef = useRef(null);
   const list = Array.isArray(records) ? records : [];
   const has = list.length > 0;
 
@@ -61,6 +62,50 @@ export default function Landing({ onStart, records = [], onOpen }) {
           </div>
         )}
       </div>
+
+      <div className="landing-backup">
+        <button type="button" className="link-btn" onClick={() => exportRecords()}>导出我的山径</button>
+        <button type="button" className="link-btn" onClick={() => fileRef.current && fileRef.current.click()}>导入山径</button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={(e) => importRecords(e.target.files?.[0], onImport)}
+        />
+        <p className="landing-backup-hint">历史记录存在当前浏览器和当前端口号下。换端口、换浏览器或清缓存会看不到，建议定期导出备份。</p>
+      </div>
     </section>
   );
+}
+
+function exportRecords() {
+  const payload = {
+    records: JSON.parse(localStorage.getItem('alchemy:records') || '[]'),
+    history: JSON.parse(localStorage.getItem('alchemy:history') || '{"topics":[],"sides":{}}'),
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `山外山_山径备份_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importRecords(file, onImport) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(String(reader.result));
+      if (!Array.isArray(data.records) && !data.history) throw new Error('文件格式不对');
+      if (Array.isArray(data.records)) localStorage.setItem('alchemy:records', JSON.stringify(data.records));
+      if (data.history) localStorage.setItem('alchemy:history', JSON.stringify(data.history));
+      if (onImport) onImport();
+    } catch (e) {
+      alert('导入失败：' + (e.message || '文件解析出错'));
+    }
+  };
+  reader.readAsText(file);
 }

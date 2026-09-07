@@ -12,7 +12,7 @@ import ResultNav from './components/ResultNav.jsx';
 import SpiritGuide from './components/SpiritGuide.jsx';
 import {
   recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
-  saveRecord, loadRecords, updateRecordQuiz,
+  saveRecord, loadRecords, updateRecordQuiz, updateRecordRoadmap, flattenRoadmap,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
 
@@ -33,8 +33,7 @@ export default function App() {
   const [alchemyLoading, setAlchemyLoading] = useState(false);
   const [alchemyStep, setAlchemyStep] = useState('');
   const [quizResult, setQuizResult] = useState(null); // 当次自测结果（立场分布 + 盲区），喂给行动地图
-  const [prefetchedActions, setPrefetchedActions] = useState(null); // 决策A：后台预生成的"吸收辨向"升级版行动地图
-  const [prefetching, setPrefetching] = useState(false);
+  const [prefetchedActions, setPrefetchedActions] = useState(null); // 决策A：进入第④步时生成的"带终点完整路线"（含 roadmap）
   const reqId = useRef(0);
   const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
 
@@ -193,34 +192,13 @@ export default function App() {
     }
   }, [quizResult]);
 
-  // 决策A：答完自测瞬间，后台偷偷预生成"吸收辨向"的升级版行动地图（此时用户还在结果页/山头页，无感零等待）
-  useEffect(() => {
-    if (!quizResult || !quizResult.answeredCount || !data?.conflict?.roles?.length) return;
-    if (prefetchedActions) return; // 已有结果，避免重复触发
-    setPrefetching(true);
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await api('/api/actions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            topic: data.topic || topic,
-            roles: data.conflict.roles,
-            quizResult,
-            persona: personaPayload ? personaPayload(card) : {},
-            auto: true, // 走额度保护路径：接近上限时自动降级为保留初版
-          }),
-        });
-        if (!cancelled && r && r.actions && r.actions.length) setPrefetchedActions(r.actions);
-      } catch (e) {
-        // 失败则保留初版，不阻断
-      } finally {
-        if (!cancelled) setPrefetching(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [quizResult, data, card, prefetchedActions]);
+  // 生成"带终点完整路线"的动作集中在行动地图组件内触发（进入第④步自动拉取，或用户手动点"重做"）。
+  // 路线就绪后这里把 roadmap 写回存档，保证回看历史时不重复消耗直答。
+  function handleRouteReady(roadmap) {
+    if (!roadmap) return;
+    setPrefetchedActions((prev) => (prev ? { ...prev, roadmap } : { roadmap, actions: flattenRoadmap(roadmap) }));
+    if (currentRecordId.current) updateRecordRoadmap(currentRecordId.current, roadmap);
+  }
 
   // 决策B「指出变化」：找出上一条带自测结果的历史存档，供行动地图对比"你判断变了没"
   const prevRecord = useMemo(() => {
@@ -238,6 +216,9 @@ export default function App() {
     setData(rec.data);
     setTopic(rec.topic || rec.data.topic || '');
     setQuizResult(rec.quiz || null);
+    // 若当年生成过完整路线，直接还原，不重复消耗直答
+    if (rec.data.roadmap) setPrefetchedActions({ roadmap: rec.data.roadmap, actions: flattenRoadmap(rec.data.roadmap) });
+    else setPrefetchedActions(null);
     setStep('result0');
   }
 
@@ -251,7 +232,7 @@ export default function App() {
         <div className="result-actions">
           {back && <button className="chip" onClick={() => setStep('result0')}>← 返回总览</button>}
           <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
-          <button className="chip primary" onClick={() => exportMd(data)}>导出 Markdown</button>
+          <button className="chip primary" onClick={() => exportMd({ ...data, roadmap: (prefetchedActions && prefetchedActions.roadmap) || data?.roadmap || null })}>导出 Markdown</button>
         </div>
       </div>
     );
@@ -374,7 +355,7 @@ export default function App() {
                 <ResultHead back />
                 {!dom && <div className="dep-note">请先完成【辨向自测】，才能生成专属你的脚下三步。</div>}
                 {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
-                <ActionMap data={data} quizResult={quizResult} persona={card} prefetchedActions={prefetchedActions} prefetching={prefetching} prevRecord={prevRecord} />
+                <ActionMap data={data} quizResult={quizResult} persona={card} prefetchedActions={prefetchedActions} prevRecord={prevRecord} onRouteReady={handleRouteReady} />
               </>
             )}
           </>

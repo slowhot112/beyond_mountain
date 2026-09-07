@@ -166,6 +166,8 @@ export async function zhihuGlobalSearch(secret, query, count = 10, ttl = 3600) {
     }).filter((it) => {
       // 全网结果容易混入 SEO 垃圾或乱码，只保留标题/摘要干净且含检索词的
       if (looksMojiboke(it.title) || looksMojiboke(it.summary)) return false;
+      // 检索词不含中文时（如 AIGC / GPT），切不出中文关键词，此时不过滤，否则全网结果会被全部丢掉
+      if (!kws.length) return true;
       const t = String(it.title || '') + ' ' + String(it.summary || '');
       return kws.some((k) => t.includes(k));
     });
@@ -197,10 +199,11 @@ export async function zhihuHot(secret, limit = 30, ttl = 3600) {
 }
 
 // ---------- 3. 知乎直答（大模型，OpenAI 兼容格式：POST {OPENAI_BASE_URL}/chat/completions） ----------
-// topic 用于「跨用户 topic 级缓存」：同一话题不同处境卡可复用首次结果，吸收冷门话题慢响应
-export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600, topic = '') {
+// topic 用于「topic 级缓存」：调用方应把话题连同处境摘要一起传进来（如 `话题#准入行|北京|三个月`），
+// 使处境不同的人不会共用同一份回答；同处境再次进入可直接命中，吸收慢响应
+export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600, topic = '', timeoutMs = 40000) {
   if (!hasSecret(secret)) return MOCK.zhida(prompt);
-  // 1) 先查 topic 级缓存（跨用户复用），命中即返回，避免重复慢请求
+  // 1) 先查 topic 级缓存（含处境维度），命中即返回，避免重复慢请求
   const topicKey = topic ? `zhida:${model}:t:${hash(topic)}` : null;
   if (topicKey) {
     const th = await cacheGet(topicKey);
@@ -214,8 +217,8 @@ export async function zhihuZhida(secret, prompt, model = OPENAI_MODEL, ttl = 600
     const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: authHeaders(secret),
-      // 直答偶发慢响应：放宽到 40s 给足时间（实测常 20~35s 才返回），超时再返回空串交由上层重试/兜底
-      signal: AbortSignal.timeout(40000),
+      // 直答偶发慢响应：默认 40s（实测常 20~35s）；输出很大的请求（如六周路线）可传更大 timeoutMs，超时返回空串交上层重试/兜底
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model,
         stream: false,
@@ -433,18 +436,18 @@ export function pickCorpus(items, total = 8, topic = '') {
   const webItems = uniq.filter((it) => it.source === 'web').sort(byScore);
   // 知乎占主体：全网最多占 1/4；但知乎结果本身很少时，全网数量进一步压到不超过知乎，
   // 避免"知乎只有 2 条、全网却填满"导致展示里全网反而过半（用户原话：知乎少、全网多）
-  const maxWebByTotal = Math.floor(total * 0.25);
+  const maxWebByTotal = Math.floor(total * 0.25); // 知乎为主体：正常情况全网最多占 1/4
   let takeWeb, takeZh;
   if (zhihuItems.length === 0) {
     takeWeb = Math.min(webItems.length, total);
     takeZh = 0;
   } else {
+    takeZh = Math.min(zhihuItems.length, total - Math.min(webItems.length, maxWebByTotal));
     takeWeb = Math.min(webItems.length, maxWebByTotal);
-    takeZh = Math.min(zhihuItems.length, total - takeWeb);
-    if (takeWeb >= takeZh) {
-      takeWeb = Math.min(takeWeb, Math.max(0, takeZh - 1));
-      takeZh = Math.min(zhihuItems.length, total - takeWeb);
-    }
+    // 知乎结果太少、名额空着时，把剩余名额让给全网补满，保证模型有足够语料
+    // （旧逻辑在这里会把全网砍到 0，导致冷门话题语料只剩 1 条）
+    const rest = total - takeZh - takeWeb;
+    if (rest > 0) takeWeb = Math.min(webItems.length, takeWeb + rest);
   }
   const corpus = [...zhihuItems.slice(0, takeZh), ...webItems.slice(0, takeWeb)];
   const sources = [...zhihuItems.slice(0, Math.min(zhihuItems.length, 5)), ...webItems.slice(0, 1)].slice(0, 6);
@@ -491,6 +494,8 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
   ].filter(Boolean);
   const contextBlock = contextLines.length ? `\n用户处境卡（用于让回答贴合此人，而非泛泛而谈）：\n${contextLines.map((l) => '- ' + l).join('\n')}\n` : '';
   // 决策B：接入历史炼金包（只带与本次问题相关的，防串味；无关则完全忽略）
+  // 处境摘要：用于直答缓存维度——处境不同就是不同的问题，不能让不同城市/时间压力的人共用一份结果
+  const personaDigest = [pt.identityName, (pt.goalNames || []).join(','), pt.city, pt.timePressure].filter(Boolean).join('|');
   const selected = selectHistory(topic, records);
   const historyBlock = buildHistoryBlock(selected);
 
@@ -559,7 +564,8 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     const aug = attempt === 0
       ? prompt
       : prompt + '\n\n（务必只返回合法 JSON，且 conflict.roles 至少 2 个，每个含 id/name/coreArg/sources/matchReason；不要任何额外文字。）';
-    const r = await zhihuZhida(secret, aug, OPENAI_MODEL, 600, topic);
+    // 缓存 key 必须带处境：否则同一个问题、不同城市/时间压力的人会拿到别人处境下的回答
+    const r = await zhihuZhida(secret, aug, OPENAI_MODEL, 600, `${topic}#${personaDigest}`);
     if (!r || !r.trim()) { console.warn('[alchemy] zhida empty, attempt', attempt); continue; }
     try {
       const parsed = JSON.parse(extractJson(r));
@@ -625,16 +631,37 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
     return { ...r, name, matchReason: reason, sourceItems: srcItems };
   });
 
-  // 行动地图统一成「假设/去做/坚持/收手」六字段结构（兼容旧 task/why），保证前端新 UI 渲染
-  if (json && json.actions) json.actions = normalizeActions(json.actions, roles, pt, topic);
+  // 模型偶尔只返回一半（长输出被截断很常见）：quiz / actions 缺失时用真实素材补齐，
+  // 否则第③步自测页会整片空白、第④步入口被锁，整条流程就断在这儿了。
+  if (!Array.isArray(json.quiz) || json.quiz.length < 3) {
+    json.quiz = quizFromItems(roles, topic);
+  }
+  if (!Array.isArray(json.actions) || !json.actions.length) {
+    json.actions = fallbackActions(topic, pt, roles.length, null);
+  }
+  // 行动地图统一成八字段结构（兼容旧 task/why/action），保证前端新 UI 渲染
+  json.actions = normalizeActions(json.actions, roles, pt, topic);
+
+  // 来源清单：站内 + 全网混合；站内不足时用全网补满 6 条，让"来源区"始终体现全网已接入
+  const zhPart = zhihuItems.slice(0, 4);
+  const webPart = webItems.slice(0, Math.max(2, 6 - zhPart.length));
 
   return {
     ok: true, mock: false,
     ...json,
     conflict: { ...(json.conflict || {}), roles },
     usedHistory: selected.map((s) => s.rec.topic), // 本次参考了哪些历史（前端展示用）
-    // 来源清单也做站内 + 全网混合，让前端"来源区"直观体现全网搜已接入
-    sources: [...zhihuItems.slice(0, 4), ...webItems.slice(0, 2)].slice(0, 6),
+    // 正常路径也要给检索统筹，让"知乎多少条 / 全网多少条"在成功时同样看得见
+    searchStats: makeSearchStats({
+      queries: qs.length,
+      zhihuFound: zhihuItems.length,
+      webFound: webItems.length,
+      zhihuChosen: picked.zhihuChosen,
+      webChosen: picked.webChosen,
+      totalChosen: picked.corpus.length,
+      mode: 'normal',
+    }),
+    sources: [...zhPart, ...webPart].slice(0, 6),
   };
 }
 
@@ -725,9 +752,10 @@ function rolesFromItems(items, pt, existing = [], topic = '') {
     const next = out[(i + 1) % out.length];
     if (next && next.id !== r.id) {
       const nextStance = briefText(next.stance || next.coreArg, 80);
+      // 字段名必须与模型输出 / 前端一致：{to, text}（旧写法 {target, quote} 会让交锋区显示空白）
       r.rebuts = [{
-        target: next.id,
-        quote: `但 ${next.name || next.id} 提醒：${nextStance}。这说明「${r.name || r.id}」的乐观判断未必适用于所有人。`,
+        to: next.id,
+        text: `但 ${next.name || next.id} 提醒：${nextStance}。这说明「${r.name || r.id}」的判断未必适用于所有人。`,
       }];
     }
   });
@@ -744,8 +772,22 @@ function topicDirection(topic, pt) {
   return pt?.subName || pt?.industryName || '这个方向';
 }
 
+// 步骤"去模板化"：把 ①学（周一）：xxx 这种统一标签洗掉，改成"1.（周一）xxx"，
+// 只保留时间锚点与动作本身，避免每周的步骤都长一个模样。仅对带 ①~⑥ 的文本生效，可重复调用。
+function humanizeSteps(s) {
+  const str = String(s || '');
+  if (!/[①②③④⑤⑥]/.test(str)) return s;
+  const parts = str.split(/[；;]/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return str;
+  return parts.map((x, i) => {
+    const m = x.match(/^([①②③④⑤⑥])\s*[学拆练做补验]?\s*（([^）]*)）\s*[:：]?\s*(.*)$/);
+    if (m) return `${i + 1}.${m[2] ? `（${m[2]}）` : ''}${m[3] || ''}`;
+    return `${i + 1}. ${x.replace(/^[①②③④⑤⑥]\s*[学拆练做补验]?\s*/, '')}`;
+  }).join('；');
+}
+
 // 根据处境卡的时间压力，给兜底行动地图生成「决策验证路线」：
-// 每条 = 一个关键假设 + 具体小事 + 坚持信号 + 止损信号（借鉴 career-compass 的"停止条件"与 career-decision-frameworks 的"信号"思想）
+// 每条 = when + 关键假设 + 去哪儿（平台+关键词）+ 怎么做（分步）+ 完成标准 + 坚持信号 + 止损信号 + role
 function fallbackActions(topic, pt, rolesLen, bias) {
   const city = pt.city || '';
   const tp = String(pt.timePressure || '').trim();
@@ -758,128 +800,138 @@ function fallbackActions(topic, pt, rolesLen, bias) {
   for (let k = 1; k <= Math.max(1, rolesLen); k++) { const id = `r${k}`; if (!pool.includes(id)) rest.push(id); }
   const allRoles = [...pool, ...rest];
   const roleFor = (i) => allRoles[i % allRoles.length];
+  const cityIn = city ? `在${city}` : '';
   const citySuffix = city ? `${city}本地` : '';
 
-  // 时间压力分桶：紧急(<1周) / 短期(月内) / 长期(>3个月或没填)
-  let bucket = 'long';
-  if (/周|天|马上|立即|立刻|急|尽快|24\s*小|今晚|这周|两天/.test(tp)) bucket = 'urgent';
-  else if (/月/.test(tp)) bucket = 'short';
+  // 时间压力分桶：紧急(<1周) / 短期(月内) / 长期(>3个月或没填)——与路线总时长用同一套判定，避免两处不一致
+  const bucket = routeBucket(tp);
 
-  const mk = (when, hypothesis, action, go, stop, role) => ({ when, hypothesis, action, goSignal: go, stopSignal: stop, role });
+  const mk = (when, hypothesis, where, steps, done, go, stop, role) => ({ when, hypothesis, where, steps, done, goSignal: go, stopSignal: stop, role });
   let core = [];
   if (bucket === 'urgent') {
     core = [
-      mk('接下来 2 小时',
-        `假设：你能先用"判断草稿"逼自己表态，而不是继续纠结`,
-        `写下"如果必须今晚做决定，我会选哪一派、凭什么"的判断草稿（哪怕很粗糙），并标出最没把握的 1 个前提`,
-        `写完后发现"其实我心里早有倾向，只是缺证据"，说明你已能决策，下一步只是补证据`,
-        `写完仍完全无从下手、每个前提都不确定，说明信息太少，先别硬决定，今明两天去拿一手事实`,
+      mk('第1周 · 岗位与差距',
+        `假设："${dir}"这个方向现在真的在招人，而且我的背景够得着——不是我想当然`,
+        `BOSS直聘 / 实习僧 / 拉勾 / 脉脉（搜"${dir}"${city ? '，地点选' + city : ''}）`,
+        `①学（半天）：读 2 份这个岗位的行业/岗位介绍，写 1 页概念卡；②拆（第1天）：拆 3 条真实 JD，填成"要求/工具/场景/门槛"四列表；③练（第2天）：再收 7 条凑满 10 条，统计出现最多的 5 个硬性要求；④做（第3天）：把 10 条 JD 的硬性要求和你的背景逐项对照，标"已满足/部分满足/不满足"；⑤补（第4天）：专门找 3 条"门槛极高/要求模糊"的 JD 单独标注，作为反例，别只看够得着的；⑥验（第5天）：把对照表发给 1 位从业者或学长，请他指出"你觉得我差得最多的是哪一项"。`,
+        `《岗位地图》1 份：≥10 条去重 JD（含公司/岗位/城市/要求/发布日期）+ 四列分类表 + 词频前五 +《个人能力差距清单》（目标要求/现有证据/差距/补强动作），另附 3 条反例 JD。`,
+        `若 10 条里有 6 条以上的硬性要求你能对上，且从业者说"这个背景可以试试"，说明方向够得着，直接进下一步。`,
+        `若 10 条里超过 7 条都卡在同一个你短期补不上的硬门槛（学历/证书/年限/专业），说明这个方向现在进不去，立刻换相邻方向，别硬撞。`,
         roleFor(0)),
-      mk('今天',
-        `假设：一手事实比反复纠结更能帮你判断`,
-        `用 30 分钟找到 1 个能验证或推翻你当前偏向的事实（一个电话 / 一份 JD / 一个数据${citySuffix ? '，优先' + citySuffix : ''}）`,
-        `若这个事实明显支持或反驳你的偏向，说明你离结论更近一步`,
-        `若查了一圈发现"两边都有理、都没实锤"，说明这是价值观取舍而非事实问题，改用"10 年后会不会后悔"来判`,
+      mk('第1~2周 · 一手事实',
+        `假设：过来人的真话比我自己查 10 篇文章更接近真相`,
+        `脉脉 / 知乎 / 小红书 / 校友群 / 微信${city ? '（定位' + city + '）' : ''}（找正在做"${dir}"的人）`,
+        `①学（半天）：准备 6~8 个开放问题（上次做这事花了多久、哪一步返工、最后怎么交付），先找 1 人试访；②拆（第1天）：同时私信/发帖约 3 位从业者；③练（第2~3天）：完成第 1 次 30 分钟对话，记录原话；④做（第4~5天）：完成第 2、3 次对话，共 3 次；⑤补（第6天）：专门问"你见过转行失败的人卡在哪"，收集反例；⑥验（周末）：整理成"用户原话/我观察到的事实/我的解释"三栏，标出哪条推翻了我原来的想法。`,
+        `《调研纪要》1 份：3 次访谈（每次 ≥30 分钟），每次分开记"用户原话 / 观察事实 / 我的解释"三栏 + 至少 1 条推翻我原判断的记录 + 1 个可以做成作品的真实痛点。`,
+        `若 3 人里有 2 人给出具体、可复制、互相不矛盾的动作，且至少 1 人说"你这种背景有机会"，说明这条路真实存在。`,
+        `若 3 人里多数说"现在基本不招转行"，或建议互相矛盾到无法落地，说明信息还不足，先别辞/别梭哈，按他们的说法再验证一轮。`,
         roleFor(1)),
-      mk('本周',
-        `假设：外部视角能帮你堵住拍脑袋的漏洞`,
-        `向 1 位可信的人（同事 / 导师 / 行业朋友）口述你的判断，请他挑 1 个漏洞`,
-        `若对方点出的漏洞你能补上，说明判断基本站得住`,
-        `若对方一句话就戳穿核心前提，说明方向可能错了，回来重做草稿`,
+      mk('第2~3周 · 最小产出与投递',
+        `假设：我能在 2 周内交出一样"求职拿得出手"的东西，并用真实投递检验它`,
+        `飞书/Notion/语雀（写方案）+ BOSS直聘/实习僧/公司官网（投递）${city ? '，优先' + city : ''}`,
+        `①学（半天）：看 2 份这个岗位的真实作品/案例，明确"什么算合格"；②拆（第1天）：把上面访谈得到的真实痛点，拆成"输入→处理→产出"的最小方案；③练（第2天）：做 1 个小练习建立基线（比如先手写一版，记录耗时和哪里卡壳）；④做（第3~5天）：做出 1 份能给人看的最小产出（1 页方案 / 1 个小 Demo / 1 份分析报告，任选其一，能用就行）；⑤补（第6天）：补 3 条 Bad Case（信息缺失、极端情况、它答不了的情况）并写明怎么兜底；⑥验（周末）：把产出写进 1 页简历（数字都有原始记录），投出 5 份并记入投递漏斗表（投递/回复/面试）。`,
+        `最小产出 1 份（可给别人看的链接或 PDF）+ 3 条 Bad Case 与兜底说明 + 1 页可解析简历 + 投递漏斗表（已真实投出 ≥5 份，记录回复数与面试数）。`,
+        `若 5 份投递里有 1 份以上回复，或有人愿意聊你的作品，说明这条路跑得通，加大投入。`,
+        `若投出 5~10 份零回复，且没人说得出"你差在哪"，说明岗位选得太宽或简历没打中 JD 关键词，先收窄到一个主赛道再投，而不是继续海投。`,
         roleFor(2)),
-      mk('本周',
-        `假设：你能在${dir}这件事上找到一个"最小可验证动作"`,
-        `用 1 小时做 1 件最小验证（发 1 条求职咨询 / 打 1 个电话 / 查 1 个真实岗位${citySuffix ? '，优先' + citySuffix : ''}），记录对方的原话`,
-        `若得到明确肯定或否定信号，说明判断已被验证`,
-        `若对方回应模糊、没有下一步可落地动作，说明信息渠道不对，换个人或换平台再问`,
-        roleFor(3)),
     ];
   } else if (bucket === 'short') {
     core = [
-      mk('今天',
-        `假设：你的现有背景在"${dir}"岗是「懂业务 / 能落地」的加分项，而不是致命硬伤`,
-        `花 20 分钟，在${citySuffix || '招聘网站'}搜 5 个"${dir}"真实 JD，把出现最多的 3 个硬性要求（学历 / 工具 / 项目类型）列出来，对照你已有背景打勾，看重合多少`,
-        `若 3 份以上 JD 写"有行业经验优先""懂业务方沟通"，或有人愿意给你面试，说明背景是加分`,
-        `若 JD 几乎都硬性要求计算机本科 + 算法基础，且打听下来"没技术底子很难进"，说明硬伤大于加分，得先补技术或换更偏业务的岗`,
+      mk('第1周 · 岗位与行业认知',
+        `假设：我能说清"${dir}"到底要什么样的人，而不是凭感觉在转`,
+        `BOSS直聘 / 实习僧 / 拉勾 / LinkedIn / 公司官网（搜"${dir}"${city ? '，地点选' + city : ''}）`,
+        `①学（周一）：读 2 份这个岗位的行业资料/白皮书，写 1 页概念卡；②拆（周二）：拆 3 条真实 JD，填"要求/工具/场景/门槛"四列表；③练（周三）：再收 7 条凑满 10 条，统计词频，建立第一版基线；④做（周四）：扩到 ≥30 条去重 JD 并完成四列分类，写出《岗位地图》；⑤补（周五）：专门挑 5 条门槛异常高或要求互相矛盾的 JD 作为反例，标出"哪些是我现在进不去的"；⑥验（周末）：对照 JD 写出《个人能力差距清单》，找 1 位从业者看一遍并请他指出"你觉得我差得最多的是哪项"。`,
+        `《岗位地图》1 份：≥30 条去重 JD + 四列分类表 + 词频前十 +《个人能力差距清单》（目标要求/现有证据/差距/补强动作/完成日期），另附 5 条反例 JD。`,
+        `若 30 条里有一半以上的硬性要求你能对上，或从业者说"这个背景可以试试"，说明方向选对了，继续往下做。`,
+        `若 30 条里超过 20 条都卡在同一个短期补不上的硬门槛（学历/证书/年限/专业），说明这个方向现在进不去，回到岗位地图换相邻方向，别硬撞 6 周。`,
         roleFor(0)),
-      mk('本周',
-        `假设：你能把一个真实业务问题拆成方案——这是"${dir}"的核心能力，不完全靠技术`,
-        `用 2 小时做 1 个最小作品：挑一个你熟悉的行业痛点，写 1 页方案（痛点 → ${dir}怎么帮 → 要哪些数据），发给 1 位从业者或发到朋友圈 / 知乎求反馈${citySuffix ? '（优先' + citySuffix + '）' : ''}`,
-        `若从业者说"思路对""你抓的点准"，或自己写时不卡壳，说明产品思维你真有`,
-        `若连"${dir}能解决什么、不能解决什么"都讲不清，或被指出"这是运营不是产品"，说明还停在表面，先补产品基本功`,
+      mk('第2周 · 一手调研与基本功',
+        `假设：真实用户/从业者的原话，比我自己想象的需求更能决定我该做什么作品`,
+        `脉脉 / 知乎 / 小红书 / 校友群${city ? '（定位' + city + '）' : ''}（找真实用户与从业者，每人 30 分钟）`,
+        `①学（周一）：补这个岗位的核心基本功（选 1 门课或 1 本书的入门章节），写 1 页概念卡；②拆（周二）：拆 3 个同类真实产品/案例，用同一组 10 个任务去比，别只比首页功能；③练（周三）：先找 1 人试访，修掉诱导性和带答案的问题；④做（周四~周五）：完成 3 次 30 分钟访谈，追问"上次做这件事发生了什么、花了多久、哪一步返工、最后怎么交付"；⑤补（周五）：整理时严格分开"用户原话""我观察到的事实""我的解释"，防止自己脑补；⑥验（周末）：产出《调研/竞品报告》，选 1 个出现 ≥2 次或后果最明显的痛点作为后面作品的选题。`,
+        `《调研报告》1 份：3 次访谈纪要（每次分"用户原话/观察事实/我的解释"三栏）+ 1 张流程图 + 3 个同类产品用 10 个统一任务的对比表 + 1 个明确选定的作品选题。`,
+        `若 3 次访谈里有 ≥2 次指向同一个痛点，且从业者说"这个点抓得准"，说明选题站得住，可以开工做作品。`,
+        `若 3 次访谈痛点完全发散、互相打不通，或从业者说"这不是真问题"，说明你还没找到真需求，先补调研再动手，别急着做作品。`,
         roleFor(1)),
-      mk('本周',
-        `假设：市场上有人愿意告诉我这条"${dir}"路的真实通过性，而不是只听成功案例`,
-        `通过脉脉 / 知乎 / 校友群${city ? '在' + city + '本地' : ''}约到 2 位正在做"${dir}"的人，问"你当时最难过的那道坎是什么、重来一次会先做哪件事"`,
-        `若 2 人都给出具体可复制的动作，且至少有 1 人说"你这种背景有机会"，说明通道真实存在`,
-        `若 2 人都说"现在基本不招转行"或建议互相矛盾到无法落地，说明信息不足，先补认知再行动`,
+      mk('第3周 · 评测与对比',
+        `假设：我能用同一批样本说清"哪个方案/工具/做法更靠谱"，而不是凭感觉选`,
+        `这个岗位真实在用的 ≥3 个工具/平台/方案 + 飞书表格或 Excel（记录评分）`,
+        `①学（周一）：搞清这个岗位的 3~5 个关键评价指标（如准确率/耗时/成本/稳定性），写 1 页指标说明；②拆（周二）：拆 1 份别人的评测或对比案例，学它的评分口径；③练（周三）：建立 ≥20 条固定测试样本（10 条正常 + 5 条边界 + 5 条 Bad Case），先跑 1 个方案建立基线；④做（周四）：用同一批样本跑完 ≥3 个方案，逐项按 0~2 分打分并记录成本与耗时；⑤补（周五）：把失败样本按原因归类（数据不足/指令不清/格式失败/幻觉/流程问题），请第 2 个人复评 ≥5 条；⑥验（周末）：产出《评测/对比报告》，写下选了哪个、为什么、以及它会在什么情况下失效。`,
+        `《评测报告》1 份：≥20 条固定测试样本（10 正常 + 5 边界 + 5 Bad Case）+ ≥3 个方案用同一批输入的逐项评分表（0~2 分）+ Bad Case 归因分类 + 成本与耗时记录 + 明确的选型结论与失效边界。`,
+        `若某个方案在多数样本上明显领先、且你能说清它为什么赢，说明你已具备这个岗位的核心判断力，把它写进作品。`,
+        `若 3 个方案得分接近、看不出差别，或你的评分标准自己都说不清，说明样本设计有问题（太简单/没区分度），重做样本而不是硬下结论。`,
         roleFor(2)),
-      mk('本月',
-        `假设：我能在公开平台上建立"这个人在认真转${dir}"的可见度，而不只是私下努力`,
-        `在知乎/公众号/即刻写一篇「我从现有背景视角看${dir}」的公开笔记，或整理 1 份行业术语表/资源清单发到朋友圈，让至少 3 个业内人士看到`,
-        `若有人私信你"写得不错""可以聊聊"，或收到 1 次内推/面试邀约，说明信誉桥开始起作用`,
-        `若写完后零互动、且自己觉得"言之无物"，说明输入太少，先停更 2 周，集中读 5 篇高质量文章再做输出`,
+      mk('第4~5周 · 做出可演示的作品',
+        `假设：我能在 2 周内做出一个别人能打开、能走通、能评价的作品`,
+        `这个岗位真实在用的工具（如原型/搭建/开发/分析平台，选你能上手的）+ 公开托管（生成可访问链接）`,
+        `①学（周一）：确定作品范围，写 1 页 product-brief（一句话问题/目标用户/核心任务/输入/输出/成功指标/明确不做的）；②拆（周二）：画出用户流程与数据流程，列出正常、空白、加载、失败、超时等状态；③练（周三）：先用模拟数据把核心流程跑通，建立第一版基线；④做（周四~周五）：接上真实能力（模型/数据源/接口），做出能用的版本，记录优化前/后；⑤补（第2周前半）：补边界与反例（空输入、超长输入、它答不了的情况），修掉影响核心流程的问题；⑥验（第2周周末）：部署成可公开访问的链接，找 3 名没参与的人试用，记录完成率、用时、卡点和原话。`,
+        `作品 1 个：可公开访问的链接 + 1 页 PRD/说明（含流程图）+ 优化前后对比 + 3 名真人试用记录（完成率/用时/卡点/原话）+ 至少 1 处根据反馈做的修改。`,
+        `若 3 名试用者里 ≥2 人能在 5 分钟内、没有你口头指导的情况下走通核心流程，说明作品达到可展示水平，可以写进简历。`,
+        `若 3 人里多数卡在同一个步骤、或需要你在旁边解释才能走通，说明核心流程还没打通，先修这一个卡点，别急着加新功能。`,
         roleFor(3)),
-      mk('本月',
-        `假设：我能在冲击"${dir}"的同时，给自己留一条"相邻方向"的退路，而不是孤注一掷`,
-        `算一笔转行现金流账：现有积蓄能撑几个月无收入？同时列出 2 个与"${dir}"相邻、但门槛更低的岗位方向，并搜${citySuffix || '招聘网站'}有没有这类岗位`,
-        `若你能稳 3 个月以上且至少找到 1 个相邻方向有真实岗位，说明风险可控`,
-        `若现金流撑不过 2 个月、且完全找不到相邻方向，说明现在裸转风险过高，建议先在职积累或延长过渡期`,
+      mk('第6周 · 求职冲刺',
+        `假设：我能在 1 周内把六周的东西变成能投出去、能讲清楚的东西`,
+        `飞书/Word（简历）+ BOSS直聘/实习僧/公司官网/内推（投递）+ 手机录音（模拟面试）`,
+        `①学（周一）：用 STAR 结构（情境/任务/动作/结果）重写简历，只写已发生、可回查的事实；②拆（周二）：拆 5 条目标 JD 的关键词，把简历与项目描述对齐；③练（周三）：准备 ≥30 道面试题的提纲（每道 3~5 行），先自己录音答 5 道；④做（周四）：完成第 1 次 30 分钟模拟面试，删掉空话和没有出处的数字；⑤补（周五）：做第 2、3 次模拟面试（45 分钟，追问细节与 Bad Case），把答不上来的题补进题库；⑥验（周末）：投出 ≥10 份，建立投递漏斗表（投递数/回复数/面试数），并按漏斗结果写下"下周先改哪一项"。`,
+        `求职包 1 套：1 页可被解析的 PDF 简历（每个数字都有原始记录）+ ≥30 道面试题提纲 + 3 次录音模拟面试记录 + 投递漏斗表（已投 ≥10 份，记录回复数与面试数）+ 1 条根据漏斗结果确定的下周调整项。`,
+        `若投出 10 份后拿到 ≥1 次面试邀约，或有人主动来聊，说明你的材料已经进入真实通道，继续按漏斗迭代。`,
+        `若投出 20~30 份仍几乎零回复，按漏斗表回头查：岗位是否太宽、简历关键词是否没打中 JD、项目与 JD 是否不相关——收窄到一个主赛道重投，而不是继续海投。`,
         roleFor(4)),
     ];
   } else {
     core = [
-      mk('本周',
-        `假设：你先得搞清"${dir}"这行到底要什么样的人，判断才不会跑偏`,
-        `针对"${dir}"列出 3 个你必须搞清的关键问题（例如：这行到底缺什么样的人、你的背景能平移哪些能力、缺口怎么补），并各写 1 句你现在的猜测`,
-        `若列完发现"其实我能答上 2 个"，说明你离入行不远`,
-        `若 3 个都答不上、且查资料也模糊，说明你还没摸到门道，先系统补 2 周行业认知`,
+      mk('第1~2周 · 岗位与行业认知',
+        `假设：我能说清"${dir}"到底要什么样的人，而不是凭感觉在转`,
+        `BOSS直聘 / 实习僧 / 拉勾 / LinkedIn / 公司官网（搜"${dir}"${city ? '，地点选' + city : ''}）+ 行业白皮书/报告`,
+        `①学（第1周前半）：读 2 份行业资料或白皮书，写 1 页概念卡，画出这个岗位所在的产业链；②拆（第1周中段）：拆 5 条真实 JD，填"要求/工具/场景/门槛"四列表；③练（第1周后半）：收集到 20 条 JD，统计词频，建立第一版基线；④做（第2周前半）：扩到 ≥50 条去重 JD（有余力到 100 条）并完成四列分类；⑤补（第2周中段）：挑 10 条门槛异常高或要求互相矛盾的 JD 作为反例，标出"哪些我现在进不去"；⑥验（第2周周末）：写《个人能力差距清单》，找 1 位从业者看一遍，请他指出"你觉得我差得最多的是哪项"。`,
+        `《岗位地图》1 份：≥50 条去重 JD + 四列分类表 + 词频前十 +《个人能力差距清单》（目标要求/现有证据/差距/补强动作/完成日期）+ 10 条反例 JD + 3 分钟口述录音（讲清目标岗位服务什么场景、需要什么能力、我已有何证据）。`,
+        `若一半以上 JD 的硬性要求你能对上，或从业者说"这个背景可以试试"，说明方向选对了，继续往下走。`,
+        `若 50 条里超过 30 条都卡在同一个短期补不上的硬门槛（学历/证书/年限/专业），说明这个方向现在进不去，回到岗位地图换相邻方向，别在错方向上耗 3 个月。`,
         roleFor(0)),
-      mk('本月',
-        `假设：系统补知识比盲目行动更能缩短转行周期`,
-        `选 1 门"${dir}"入门级课程或 1 本被多次提及的书，用 2 周完成，并输出 1 份学习笔记（可公开发布也可只给 1 位从业者看）`,
-        `若学完后你能用新术语重新描述自己的 1 个过往经历，说明知识桥在通`,
-        `若学完仍觉得"每个概念都懂但串不起来"，说明课程太浅或方向不对，换一门更偏实战的`,
+      mk('第3~4周 · 补核心基本功',
+        `假设：系统补齐这个岗位的核心基本功，比零散看文章更能缩短周期`,
+        `1 门入门课或 1 本被多次提及的书（选这个岗位公认的）+ 飞书/Notion（笔记）+ 公开平台（可选输出）`,
+        `①学（第3周前半）：按能力差距清单选 1 门具体课程或书，只学缺口最大的 2~3 个模块；②拆（第3周中段）：拆 1 个真实案例，用课里的概念解释它为什么这么做；③练（第3周后半）：做 1 个小练习，产出第一个可比较的样例或分数；④做（第4周前半）：完成核心章节，输出 1 份学习笔记（可公开，也可只给 1 位从业者看）；⑤补（第4周中段）：专门整理 5 个"我原来理解错了"的概念作为反例；⑥验（第4周周末）：用新学的术语重新描述自己的 1 段过往经历，发给 1 位从业者确认"这么说对不对"。`,
+        `学习笔记 1 份（课程/书名 + 核心收获 + 5 个"我原来理解错了"的概念）+ 用新术语重写的 1 段个人经历 + 从业者的一句确认或修正。`,
+        `若学完能用新术语讲清自己的经历，且从业者说"理解没跑偏"，说明基本功接上了，可以进调研。`,
+        `若学完仍觉得"每个概念都懂但串不起来"，或被指出理解有偏差，说明课程太浅/方向不对，换更偏实战的资源，别继续往下堆课时。`,
         roleFor(1)),
-      mk('本月',
-        `假设：低成本试错 + 公开输出比继续看文章更能告诉你"适不适合"`,
-        `做 1 个为期 2 周的最小尝试（副业 / 项目 / 实习${citySuffix ? '，优先' + citySuffix : ''}），并同步在公开平台写 2 篇过程笔记`,
-        `若尝试中越来越顺手、且笔记有人互动/咨询，说明这条路值得继续投`,
-        `若全程痛苦、拿不到任何正向反馈，说明可能不适合，考虑相邻方向`,
+      mk('第5~6周 · 一手调研与竞品拆解',
+        `假设：真实用户和从业者的原话，比我的想象更能决定我该做什么`,
+        `脉脉 / 知乎 / 小红书 / 校友群${city ? '（定位' + city + '）' : ''}（真实用户与从业者）+ 同类真实产品/案例`,
+        `①学（第5周前半）：读 1 份用户访谈方法论，准备 6~8 个开放问题，先找 1 人试访；②拆（第5周中段）：选 3 个同类真实产品/案例，用同一组 10 个任务去比，不只比首页；③练（第5周后半）：完成第 1 次 30 分钟访谈，记录原话；④做（第6周前半）：再完成 2 次访谈（共 3 次，有余力到 5 次），画出流程图；⑤补（第6周中段）：整理时严格分开"用户原话""我观察到的事实""我的解释"，并专门记 1 条推翻我原判断的证据；⑥验（第6周周末）：产出《调研/竞品报告》，选定 1 个出现 ≥2 次或后果最明显的痛点作为作品选题。`,
+        `《调研报告》1 份：≥3 次访谈纪要（每次分"用户原话/观察事实/我的解释"三栏）+ 1 张流程图 + 3 个同类产品用 10 个统一任务的对比表 + 至少 1 条推翻我原判断的记录 + 1 个明确选定的作品选题。`,
+        `若 ≥2 次访谈指向同一个痛点，且从业者说"这个点抓得准"，说明选题站得住，可以开工做作品。`,
+        `若访谈痛点完全发散、互相打不通，或从业者说"这不是真问题"，说明你还没找到真需求，先补调研，别急着动手做。`,
         roleFor(2)),
-      mk('三个月内',
-        `假设：三个月足够你判断是否正式转向，并为风险做准备`,
-        `用这次尝试的反馈决定是否正式转向，并写下 3 条决策理由；同时算清现金流安全垫，列出 2 个相邻方向`,
-        `若理由里"能做的证据"多于"想象的恐惧"、且现金流能撑 3 个月以上，说明可以转`,
-        `若理由大多是"别人说行""听说赚钱"，或现金流撑不过 2 个月，说明还没到时候，再积累一轮`,
+      mk('第7~8周 · 评测与对比',
+        `假设：我能用同一批样本说清"哪个方案/工具/做法更靠谱"，而不是凭感觉选`,
+        `这个岗位真实在用的 ≥3 个工具/平台/方案 + 飞书表格或 Excel（记录评分）`,
+        `①学（第7周前半）：搞清这个岗位的 3~5 个关键评价指标（如准确率/耗时/成本/稳定性），写 1 页指标说明；②拆（第7周中段）：拆 1 份别人的评测或对比案例，学它的评分口径；③练（第7周后半）：建立 ≥20 条固定测试样本（10 条正常 + 5 条边界 + 5 条 Bad Case），先跑 1 个方案建立基线；④做（第8周前半）：用同一批样本跑完 ≥3 个方案，逐项 0~2 分打分，记录成本与耗时；⑤补（第8周中段）：按原因归类失败样本（数据不足/指令不清/格式失败/幻觉/流程问题），请第 2 人复评 ≥5 条并讨论分歧；⑥验（第8周周末）：产出《评测/对比报告》，写明选了哪个、为什么、以及它会在什么情况下失效。`,
+        `《评测报告》1 份：≥20 条固定测试样本（10 正常 + 5 边界 + 5 Bad Case）+ ≥3 个方案用同一批输入的逐项评分表（0~2 分）+ Bad Case 归因分类 + 成本与耗时记录 + 第 2 人复评记录 + 明确的选型结论与失效边界。`,
+        `若某个方案在多数样本上明显领先、且你能说清它为什么赢，说明你已具备这个岗位的核心判断力，把它写进作品。`,
+        `若 3 个方案得分接近、看不出差别，或评分标准自己都说不清，说明样本设计没区分度，重做样本而不是硬下结论。`,
         roleFor(3)),
-      mk('三个月内',
-        `假设：找到 1 位正在做"${dir}"的过来人，能帮你避开最多盲区`,
-        `通过知乎/小红书/校友群${city ? '在' + city + '本地' : ''}约到 1 位做"${dir}"的一线人，请他喝杯咖啡或打 15 分钟电话，问"如果我现在起步，你最建议我先做哪 3 件小事、先别做哪 3 件事"`,
-        `若对方给的动作具体可落地，且至少有 1 条和你的想象不一样，说明值回票价`,
-        `若对方只能讲宏观趋势、给不出具体动作，或你发现他说的和你网上查的完全一致，说明还没找到真过来人，换渠道再约`,
+      mk('第9~10周 · 做出可演示的作品',
+        `假设：我能做出一个别人能打开、能走通、能评价的作品，而不只是"了解过"`,
+        `这个岗位真实在用的工具（原型/搭建/开发/分析平台，选你能上手的）+ 公开托管（生成可访问链接）`,
+        `①学（第9周前半）：写 1 页 product-brief（一句话问题/目标用户/核心任务/输入/输出/成功指标/明确不做的范围）；②拆（第9周中段）：画用户流程与数据流程，列出正常、空白、加载、失败、超时等状态；③练（第9周后半）：先用模拟数据把核心流程跑通，建立第一版基线；④做（第10周前半）：接上真实能力（模型/数据源/接口），做出能用的版本，记录优化前/后；⑤补（第10周中段）：补边界与反例（空输入、超长输入、它答不了的情况），把前面两周的测试样本接进来，修掉影响核心流程的问题；⑥验（第10周周末）：部署成可公开访问的链接，找 3 名没参与的人试用，记录完成率、用时、卡点和原话。`,
+        `作品 1 个：可公开访问的链接 + 1 页 PRD/说明（含流程图）+ 优化前后对比 + 3 名真人试用记录（完成率/用时/卡点/原话）+ 至少 1 处根据反馈做的修改 + 1 份 README（写清问题、用户、流程、怎么测、真实结果、限制）。`,
+        `若 3 名试用者里 ≥2 人能在 5 分钟内、没有你口头指导的情况下走通核心流程，说明作品达到可展示水平，可以写进简历。`,
+        `若多数人卡在同一个步骤、或需要你在旁边解释才能走通，说明核心流程还没打通，先修这一个卡点，别急着加新功能。`,
         roleFor(4)),
+      mk('第11~12周 · 求职冲刺',
+        `假设：我能把这两个月的东西，变成能投出去、能讲清楚、经得起追问的东西`,
+        `飞书/Word（简历）+ BOSS直聘/实习僧/公司官网/内推（投递）+ 手机录音（模拟面试）`,
+        `①学（第11周前半）：用 STAR 结构（情境/任务/动作/结果）重写简历，只写已发生、可回查的事实；②拆（第11周中段）：拆 5 条目标 JD 的关键词，把简历与项目描述对齐；③练（第11周后半）：准备 ≥30 道面试题的提纲（每道 3~5 行），先自己录音答 5 道；④做（第12周前半）：完成第 1 次 30 分钟模拟面试，删掉空话和没有出处的数字；⑤补（第12周中段）：再做 2 次 45 分钟模拟面试（追问模型/做法/取舍/Bad Case），把答不上来的题补进题库；⑥验（第12周周末）：投出 ≥10 份，建立投递漏斗表（投递数/回复数/面试数），按漏斗结果写下"下一步先改哪一项"。`,
+        `求职包 1 套：1 页可被解析的 PDF 简历（每个数字都有原始记录）+ ≥30 道面试题提纲 + 3 次录音模拟面试记录 + 投递漏斗表（已投 ≥10 份，记录回复数与面试数）+ 1 条根据漏斗结果确定的下一步调整项。`,
+        `若投出 10 份后拿到 ≥1 次面试邀约，或有人主动来聊，说明你的材料已进入真实通道，继续按漏斗迭代。`,
+        `若投出 20~30 份仍几乎零回复，按漏斗表回头查：岗位是否太宽、简历关键词是否没打中 JD、项目与 JD 是否不相关——收窄到一个主赛道重投，而不是继续海投。`,
+        roleFor(5)),
     ];
   }
 
-  // 兜底：为每条补上「去哪儿 / 怎么操作 / 完成标准」，让结构完整、前端统一渲染（steps 复用上面已有的 action 文案）
-  const whereByBucket = {
-    urgent: '纸笔 / 手机备忘录（先逼自己表个态）',
-    short: `${city || '招聘网站'} / BOSS直聘 / 脉脉 / 知乎`,
-    long: '知乎 / 公众号 / 即刻 / 脉脉 / 校友群',
-  };
-  const doneByBucket = {
-    urgent: '完成标准：写完判断草稿，并标出最没把握的 1 个前提',
-    short: '完成标准：拿到至少 1 个可判断的明确信号（肯定或否定都算数）',
-    long: '完成标准：产出 1 份可回看的笔记 / 对照表 / 清单',
-  };
-  core = core.map((a) => ({
-    ...a,
-    where: whereByBucket[bucket] || whereByBucket.long,
-    steps: a.action || '',
-    done: doneByBucket[bucket] || doneByBucket.long,
-  }));
-  return core.slice(0, 5);
+  return core.slice(0, 6).map((a) => ({ ...a, steps: humanizeSteps(a.steps) }));
 }
 
 // 把行动统一成「when / hypothesis / where / steps / done / goSignal / stopSignal / role」八字段结构（兼容旧 task/why/action）
@@ -901,7 +953,8 @@ export function normalizeActions(actions, roles, pt, topic) {
       when: base.when || '',
       hypothesis: base.hypothesis || '',
       where: base.where || '',
-      steps: base.steps || base.action || '', // 旧六字段的 action 平滑过渡为 steps
+      // 旧六字段的 action 平滑过渡为 steps；顺手把"①学（周一）"这类统一标签洗掉
+      steps: humanizeSteps(base.steps || base.action || ''),
       done: base.done || '',
       goSignal: base.goSignal || '',
       stopSignal: base.stopSignal || '',
@@ -1002,12 +1055,153 @@ ${lines}
 `;
 }
 
-// 根据自测反馈重做行动地图：把"最信哪一派 / 哪些盲区"喂给模型，生成贴合其辨向的验证路线
-export async function generateActions(secret, topic, roles, quizResult, persona = {}) {
-  const rs = Array.isArray(roles) ? roles : [];
-  if (!hasSecret(secret) || !rs.length) {
-    return { ok: false, fallback: true, actions: fallbackActions(topic, persona, rs.length, quizBias(quizResult)) };
+// ---------- 行动地图 v2：带终点的完整路线（roadmap） ----------
+// 时间压力分桶：紧急(<1周) / 短期(月内) / 长期(>3个月或没填)，决定路线总时长
+function routeBucket(tp) {
+  const s = String(tp || '').trim();
+  // 先看长期信号（三个月以上 / 半年 / 长期），否则"三个月以上"会因含"月"被误判成一个月左右
+  if (/半年|一年|长期|不急|慢慢|没有|暂无|三\s*个月|3\s*个月|四\s*个月|4\s*个月|五\s*个月|5\s*个月|六\s*个月|6\s*个月|[3-9]\s*个月以上/.test(s)) return 'long';
+  if (/周|天|马上|立即|立刻|急|尽快|24\s*小|今晚|这周|两天/.test(s)) return 'urgent';
+  if (/月/.test(s)) return 'short';
+  return 'long';
+}
+export function routeHorizon(bucket) {
+  return { urgent: '约 2~3 周', short: '约 6 周', long: '约 8~12 周' }[bucket] || '约 6 周';
+}
+
+// 路线语料块：把"本次检索到的真实资料"作为事实锚，任务的事实断言只能从这里引，引不到就标 verify
+function routeCorpus(sources) {
+  const arr = Array.isArray(sources) ? sources.filter((s) => s && s.title) : [];
+  if (!arr.length) return '';
+  const lines = arr.map((s, i) => `【来源${i + 1}】${s.title}${s.summary ? '\n' + briefText(s.summary, 140) : ''}`).join('\n\n');
+  return `\n本次检索到的真实资料（★关于"行业/岗位要什么、行情、路径通不通"的事实断言，只能从下面引用并逐条标【来源N】；不依赖这些资料的任务——例如它本身就是去拿一手事实——标 "verify"）：
+${lines}
+`;
+}
+
+// 把模型输出的任务证据引用解析成可点开的原文；引用不上就降级 verify（宁缺毋假，绝不硬编）
+// normalizeActions 只保留八字段，会丢弃 ev，所以这里在归一化后再把原始 ev 解析挂回
+function attachEv(tasks, rawTasks, sources) {
+  const src = Array.isArray(sources) ? sources : [];
+  return (tasks || []).map((t, i) => {
+    const rawRaw = (rawTasks && rawTasks[i] && rawTasks[i].ev) || t.ev || [];
+    const raw = Array.isArray(rawRaw) ? rawRaw : [rawRaw];
+    const refs = [];
+    let verify = false;
+    raw.forEach((e) => {
+      const n = /来源\s*(\d+)/.exec(String(e || ''));
+      const it = n ? src[Number(n[1]) - 1] : null;
+      if (it && it.title) refs.push({ title: it.title, url: it.url || '' });
+      else if (/verify|待验证|待你验证/i.test(String(e))) verify = true;
+    });
+    return { ...t, ev: refs, evVerify: verify };
+  });
+}
+
+// roadmap 任务平铺（兼容旧前端/导出；每条带阶段标题方便识别）
+export function flattenRoadmap(roadmap) {
+  if (!roadmap || !Array.isArray(roadmap.phases)) return [];
+  const out = [];
+  (roadmap.phases || []).forEach((p) => {
+    (p.tasks || []).forEach((t) => {
+      out.push({ ...t, when: t.when || p.week || '', _phase: `${p.no || ''} ${p.title || ''}`.trim() });
+    });
+  });
+  return out;
+}
+
+// 兜底：把普通 action 列表包装成"带终点"路线结构，保证新 UI 任何情况都能渲染
+export function buildFallbackRoadmap(actions, persona, topic) {
+  const acts = Array.isArray(actions) ? actions : [];
+  const bucket = routeBucket(persona && persona.timePressure);
+  const horizon = routeHorizon(bucket);
+  const splitAt = bucket === 'urgent' ? 1 : 3;
+  const head = acts.slice(0, splitAt);
+  const tail = acts.slice(splitAt);
+  const wk = bucket === 'urgent' ? ['第1周', '第2~3周'] : bucket === 'short' ? ['第1~3周', '第4~6周'] : ['第1~6周', '第7~12周'];
+  const phases = [];
+  if (head.length) {
+    phases.push({
+      no: 1, week: wk[0], title: '摸清方向：这个岗要什么样的人，你还差什么',
+      focus: '收集真实 JD 与一手事实，产出岗位地图与能力差距清单，先把方向定下来',
+      phaseDone: '岗位地图与能力差距清单已完成，且至少 1 位从业者看过并给了具体意见',
+      tasks: head.map((t) => ({ ...t, ev: [], evVerify: true })),
+    });
   }
+  if (tail.length) {
+    phases.push({
+      no: 2, week: wk[1], title: '做出实物并投出去',
+      focus: '把调研与评测的结论做成作品，再变成简历、题库和真实投递',
+      phaseDone: '至少交出 1 个可公开访问的作品 + 1 页可解析简历，并已真实投出 ≥10 份',
+      tasks: tail.map((t) => ({ ...t, ev: [], evVerify: true })),
+    });
+  }
+  return {
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    horizon,
+    goal: {
+      text: `${horizon}内，交得出一整套求职拿得出手的材料：岗位地图 + 能力差距清单、调研纪要、评测报告、一个可公开访问的作品、一页可解析的简历，并已真实投出 ≥10 份、按投递漏斗迭代过。`,
+      basis: `按你填的时间压力「${persona && persona.timePressure ? persona.timePressure : '未明确'}」与目标而定；所有数字都来自你自己的真实记录，没发生的不写、没验证的标"待验证"。`,
+    },
+    phases,
+    graduation: {
+      checklist: [
+        { text: 'JD 已分类并统计词频（≥30 条去重，并单独标注了门槛过高的反例 JD）', verify: '打开岗位地图，当场数出条数并指出反例' },
+        { text: '个人能力差距清单每一条都对应真实 JD 原文', verify: '随机抽查 3 项，能说出它来自哪条 JD' },
+        { text: '完成 ≥3 次真实访谈，纪要分开记录「用户原话 / 观察到的事实 / 我的解释」', verify: '打开 3 份纪要，三栏都填了' },
+        { text: '用同一批测试样本（≥20 条，含 5 条 Bad Case）比过 ≥3 个方案并留下分数', verify: '打开评分表，能看到逐项分数与归因' },
+        { text: '优化前后结果可回查（保留了优化前的基线记录）', verify: '同时打开优化前后的两份记录' },
+        { text: '作品可现场演示（有公开链接，别人能打开走通核心流程）', verify: '当场打开链接，请 1 个人走一遍' },
+        { text: '真人试用记录如实（≥3 人，卡点和负面反馈也记了）', verify: '打开试用记录，能看到负面反馈' },
+        { text: '简历可被解析，且每个数字都有原始记录', verify: '随机挑 3 个数字，能说出出自哪份材料' },
+        { text: '面试题库与模拟面试完成（≥30 题提纲 + 3 次录音）', verify: '打开题库与录音文件' },
+        { text: '投递漏斗按真实结果调整过（投了多少、回了几份、下一步改什么）', verify: '打开漏斗表，能看到依据结果做的调整' },
+      ],
+      judge3: [
+        '能否用 3 分钟讲清目标场景：这个岗服务什么人、解决什么问题、为什么值得做。',
+        '能否当场展示作品并说清取舍：为什么这么选、放弃了什么、它会在什么情况下失效。',
+        '能否拿出测试与用户证据：评分表、试用记录、以及真实的投递回复（哪怕拒绝也算）。',
+      ],
+    },
+  };
+}
+
+// 归一化路线任务：八字段结构 + 角色合法化 + 证据链接
+function normalizeRoadmap(roadmap, roles, persona, topic, sources) {
+  const rm = roadmap && typeof roadmap === 'object' ? roadmap : {};
+  const phases = Array.isArray(rm.phases) ? rm.phases : [];
+  const out = [];
+  (phases || []).forEach((p, pi) => {
+    const rawTasks = Array.isArray(p.tasks) ? p.tasks : [];
+    const tasks = attachEv(normalizeActions(rawTasks, roles, persona, topic), rawTasks, sources);
+    out.push({
+      no: p.no || pi + 1,
+      week: p.week || '',
+      title: p.title || `第 ${p.no || pi + 1} 阶段`,
+      focus: p.focus || '',
+      phaseDone: p.phaseDone || '',
+      tasks,
+    });
+  });
+  return {
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    horizon: rm.horizon || routeHorizon(routeBucket(persona && persona.timePressure)),
+    goal: rm.goal && rm.goal.text ? { text: rm.goal.text, basis: rm.goal.basis || '' } : { text: '', basis: '' },
+    phases: out,
+    graduation: rm.graduation || buildFallbackRoadmap([], persona, topic).graduation,
+  };
+}
+
+// 根据自测反馈重做行动地图：把"最信哪一派 / 哪些盲区"喂给模型，生成贴合其辨向的"带终点完整路线"
+export async function generateActions(secret, topic, roles, quizResult, persona = {}, sources = []) {
+  const rs = Array.isArray(roles) ? roles : [];
+  const fb = () => {
+    const acts = fallbackActions(topic, persona, rs.length, quizBias(quizResult));
+    return { ok: false, fallback: true, actions: acts, roadmap: buildFallbackRoadmap(acts, persona, topic) };
+  };
+  if (!hasSecret(secret) || !rs.length) return fb();
   const sideCounts = (quizResult && quizResult.sideCounts) || {};
   const uncertain = (quizResult && quizResult.uncertainSides) || [];
   const dominantArr = (quizResult && quizResult.dominant) || null;
@@ -1016,34 +1210,77 @@ export async function generateActions(secret, topic, roles, quizResult, persona 
   const roleLines = rs.map((r) => `- ${r.id}（${r.name || r.form || r.id}）核心立场：${briefText(r.coreArg || r.stance || '', 60)}`).join('\n');
   const quizSummary = `用户自测结果：最偏向 ${dominantId ? roleName(dominantId) : '未明确'}；标了"不确定"的盲区视角：${uncertain.length ? uncertain.map(roleName).join('、') : '无'}。各派被倾向次数：${Object.entries(sideCounts).map(([k, v]) => `${k}:${v}`).join(', ') || '无'}`;
   const personaPrompt = `用户处境：阶段「${persona.identityName || persona.stageName || ''}」${persona.goalNames && persona.goalNames.length ? ` · 目标「${persona.goalNames.join('、')}」` : ''}${persona.city ? ` · 城市「${persona.city}」` : ''}${persona.timePressure ? ` · 时间「${persona.timePressure}」` : ''}。最困惑：${persona.confusion || topic}。`;
-  const prompt = `你是"判断力陪练"。基于下面已经存在的各派立场，以及这位用户刚做完的辨向自测结果，为他生成一份"决策验证路线"（先验证判断、再下结论），每条都在验证一个关键判断，并给"坚持/收手"两把尺子。
+  const prompt = `你是"判断力陪练"，把用户的处境排成一份**带终点的完整行动路线**。
+浓度标准（必须严格对齐用户认可的《转行自救指南（六周计划）》）：按周推进；每周都有「本周目标 → 学什么（输入）→ 做出什么（输出）→ 验收标准」四件事；每周都能交出一样求职时拿得出手的实物；终点是真实的求职动作。绝对不要输出一张张孤立的"验证卡片"或"了解一下 / 看看行情"这种空动作。
 ${personaPrompt}
+第 0 步（最重要）：从用户这次最困惑的问题/目标里认出 ta 想投的**目标岗位**（如"数据分析师""AI产品经理""视频生成岗""内容运营"）。整条路线只围绕这个岗位真实展开：这个岗要什么样的人→你还差什么→做什么作品/证据能证明→怎么投。严禁套用建档行业或"AI产品经理/AIGC/校园AIGC项目"等默认设定，除非用户问的正是它；涉及工具、方法、验收物也只写这个岗位真实在用的。
 已有立场：
 ${roleLines}
-${quizSummary}
-严格要求：只返回一个 JSON 对象，不要任何额外文字。
+${quizSummary}${routeCorpus(sources)}
+【通用六周骨架（仅作节奏与产出模板，具体每周学什么、做什么作品、用什么工具，全部换成目标岗位真实在用的东西）】
+第1周 岗位与行业认知：收集真实 JD → 产出《岗位地图》+《个人能力差距清单》→ 定下主赛道与备选赛道；
+第2周 一手调研与基本功：做真实用户访谈或拆解真实案例 → 产出《调研/竞品报告》（含流程图与对比表）→ 为后面的作品选题；
+第3周 评测与对比：做一批固定测试样本（含边界与 Bad Case）→ 用同一批样本对比 ≥3 个方案/工具/做法 → 产出《评测/对比报告》并留下分数；
+第4周 做出第一版作品：把选题做成能跑通的版本（输入→处理→产出→结果可核验）→ 记录优化前/后；
+第5周 打磨与公开：补边界、异常与反例 → 找真人试用 → 产出可公开访问链接 + 测试记录；
+第6周 求职冲刺：1 页可解析简历（每个数字都有原始记录）+ 面试题库 + 模拟面试 + 投递与复盘漏斗。
+——骨架保证"每周都有实物，且能串成一条求职证据链"，最后一周能直接投出去。
+【每周的推进感（这是内在要求，不是让你往步骤里套的字）】
+每周的 steps 要能看出一条推进线：先拿输入（补一点必要的认知、拆一个真实的 JD/案例）→ 建立自己的第一版基线 → 做出本周的交付物 → 用 Bad Case、异常输入、反例去砸它 → 交给真人验收并复盘。
+但落到 steps 文字上时：每一步都用"这个岗位本周真实要做的动作"来命名（动宾短语，如"收集 30 条 JD""统计词频前十""找 3 个人试用"）。严禁出现"学 / 拆 / 练 / 做 / 补 / 验"这类统一标签，也不许每周都套同一套说法——第 1 周就该写"收 JD、分类、统计词频"，第 3 周就该写"建测试样本、跑三个方案、归因失败样本"。时间锚点可以自然带（如"本周前半""周末前"），但不要每步都强行标周一到周日。
+【验收量级参考（照这个标准给数字，可以按他每周可投入的时间适度缩放，但必须有具体数字）】
+岗位地图：≥30 条去重 JD（有余力到 100 条）+ 分类表 + 词频前十 +《个人能力差距清单》（目标要求/现有证据/差距/补强动作/完成日期/作品链接）；
+调研访谈：≥3 次真实访谈（每次 ≥30 分钟）+ 访谈纪要（分开记录"用户原话""你观察到的事实""你的解释"）；
+评测对比：固定测试样本 ≥20 条（10 条正常 + 5 条边界 + 5 条 Bad Case），同一批输入比 ≥3 个方案，逐项 0~2 分，请第 2 人复评 ≥5 条，记录成本与耗时；
+作品：1 个可公开访问链接 + ≥3 名真人试用记录（≥2 人能在 5 分钟内、无口头指导走通核心流程）+ 优化前后对比；
+求职：1 页可被解析的 PDF 简历（所有数字有原始记录）+ ≥30 道面试题提纲 + ≥3 次录音模拟面试 + 投递复盘漏斗表（投递数/回复数/面试数，并按真实结果调整）。
+严格要求：只返回一个 JSON 对象，不要任何额外文字、不要 markdown 代码块。
 {
-  "actions": [
-    {"when":"时间窗口","hypothesis":"要验证的关键判断（一句话、可被事实推翻）","where":"去哪儿做：具体平台/渠道+搜什么关键词","steps":"怎么操作：一步步、带明确数字（看几个/约几个人/列几份）","done":"做完算不算成：交付什么、怎么算做成","goSignal":"出现这些说明该坚持","stopSignal":"出现这些说明该收手/换路","role":"该任务主要验证哪一派（角色id或all）"}
-  ]
+  "roadmap": {
+    "horizon": "约 6 周",
+    "goal": { "text": "终点卡：走到第几周交得出什么（如：一版能投的简历 + 已真实投出 N 份 + 能就自己的判断讲 3 分钟），要落在这个人的处境够得着，绝不写死待遇与成功率", "basis": "为什么定这个终点（引用他的时间压力 / 目标 / 最困惑）" },
+    "phases": [
+      { "no":1, "week":"第1周", "title":"本周目标（一句话）", "focus":"本周输入：学什么/查什么/收集什么", "phaseDone":"本周验收：做成什么算过，要能被现实核验",
+        "tasks":[ {"when":"第1周","hypothesis":"要验证的关键判断","where":"去哪儿做（平台/渠道 + 搜什么关键词）","steps":"怎么做（分步、带数字）","done":"做完算成（交付物命名具体、带数量与验收点）","goSignal":"坚持信号","stopSignal":"收手信号","role":"r1","ev":["来源3"]} ] }
+    ],
+    "graduation": { "checklist":[{"text":"毕业检查项","verify":"拿什么现实反馈验"}], "judge3":["结束时只看的事1","2","3"] }
+  }
 }
-约束：给出 4~6 条 action，用 when/hypothesis/where/steps/done/goSignal/stopSignal/role 八字段。where=去哪儿做（具体平台/渠道+搜什么关键词）；steps=怎么操作（一步步、带明确数字，如"找 3 个岗位→抄要求→对照"）；done=做完算不算成（交付什么、可验证的产出物）。必须针对用户的辨向结果：优先验证他"最信的那一派"是否站得住（给 1~2 条 role=${dominantId || 'r1'} 的任务）；针对他标了"不确定"的盲区视角，各给至少 1 条补全任务（role 填对应 id）；其余任务覆盖其他派。时间窗口结合用户时间压力（短于一星期用"2小时内/今天/本周"，一个月左右"今天/本周/本月"，三个月以上"本周/本月/三个月内"，未填则首条"明确时间窗口"）。每条都要具体、可验证、带地点与时间限定，不要泛泛而谈。`;
+约束：
+1. 总时长按时间压力给建议：短于一星期→"约 2~3 周"；一个月左右→"约 6 周"（默认按《六周路线》排）；三个月以上或没填→"约 8~12 周"。写入 horizon。
+2. 阶段数与 week 连续对齐 horizon：约 2~3 周→只给 3 个阶段（每段约 1 周）；约 6 周→正好 6 个阶段，week 依次为"第1周"…"第6周"；约 8~12 周→6 个阶段，week 写连续区间（如"第1~2周""第3~4周"…）。不许跳周，week 必须接满整个 horizon。
+3. 每阶段排 1~2 条任务（全路线 6~12 条，宁精勿滥、不要堆条数），steps 按本周真实动作的先后顺序写，每步一句话、带数字，别注水；每步用动宾短语命名，不要套任何统一标签，也不要出现"学 / 拆 / 练 / 做 / 补 / 验"这类字眼。
+4. 每周至少要有 1 条任务的 done 是"求职时拿得出手"的实物，命名具体并带数量与验收点（例如："《岗位地图》：≥30 条去重 JD + 四列分类表 + 词频前十""《调研报告》：3 次访谈纪要 + 数据流程图""《评测报告》：20 条测试样本 + 3 个方案逐项评分 + Bad Case 分类""作品：1 个可公开访问链接 + 3 人试用记录""简历：1 页可解析 PDF + 投递漏斗表"）。严禁用"了解一下""看看行情""持续关注"这类无法验收的说法充当交付。
+5. 每条用 when/hypothesis/where/steps/done/goSignal/stopSignal/role 八字段。when 写周（如"第1周"）；steps 分步带数字；done 是可验证交付物；goSignal/stopSignal 是**能被现实结果判定**的具体信号（出现什么事实=该坚持/加码，出现什么事实=该收手/换路），严禁空话。
+6. role 分配：先给你最信的一派 1~2 条（验证它是否站得住，role=${dominantId || 'r1'}）；盲区视角 ${uncertain.length ? uncertain.map((u) => roleName(u) + '(' + u + ')').join('、') : '无'} 每个至少 1 条；其余覆盖别的派。
+7. ev 数组：事实性断言引用上方真实资料的【来源N】；引用不了或任务本身就是去拿一手事实的，写 "verify"。禁止凭空编造来源。
+8. where 与 steps 必须出现这个岗位**真实在用的平台、工具与搜索关键词**（真实的招聘平台、真实的专业软件/工具、真实的社区或资料源），严禁只写"招聘网站""网上查查""相关平台"这类空渠道。
+9. 每条任务都要有"反例意识"：steps 里必须包含"补 Bad Case / 异常状态 / 反例校验"这一步；goSignal 与 stopSignal 必须能被现实结果判定，不能是自我感觉。
+10. graduation.checklist 给 8~10 项，每项 text + verify（拿什么现实反馈验），且每项都必须能"当场打开材料证明"（文件/作品/记录/对话/数据），按这个口径写：JD 已分类并统计词频、能力差距有真实证据、访谈与调研已完成、测试样本与 Bad Case 已跑完并留分数、优化前后结果可回查、作品可现场演示、真人试用记录如实、简历可解析且每个数字有出处、面试题库与模拟面试完成、投递漏斗按真实结果调整过。不要"我觉得准备好了"这类空项；judge3 给 3 句"结束时只看这 3 件事"。`;
 
+  const routeDigest = [persona.identityName || persona.stageName, persona.city, persona.timePressure,
+    dominantId, (uncertain || []).join(',')].filter(Boolean).join('|');
   const startedAt = Date.now();
-  const BUDGET = 15000;
+  const BUDGET = 65000; // 六周路线输出量大：单次直答放宽到 60s（前端 120s 兜底）
   let json = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (Date.now() - startedAt > BUDGET) break;
-    const r = await zhihuZhida(secret, prompt, OPENAI_MODEL, 600, topic + ':actions');
+    // 仅在首轮快速失败（网络/解析类错误）时才重试；首轮已跑满超时的绝不重试，避免白耗双倍额度和等待
+    if (attempt > 0 && Date.now() - startedAt > 8000) break;
+    // 路线缓存同样要带处境与辨向：不同城市/时间压力/最信派别，路线本就该不同
+    const r = await zhihuZhida(secret, prompt, OPENAI_MODEL, 600, `${topic}:route#${routeDigest}`, 60000);
     if (!r || !r.trim()) continue;
     try {
       const parsed = JSON.parse(extractJson(r));
-      if (Array.isArray(parsed.actions) && parsed.actions.length >= 3) { json = parsed; break; }
+      const ph = parsed && parsed.roadmap && parsed.roadmap.phases;
+      const n = Array.isArray(ph) ? ph.reduce((a, p) => a + (Array.isArray(p.tasks) ? p.tasks.length : 0), 0) : 0;
+      if (Array.isArray(ph) && ph.length >= 2 && n >= 6) { json = parsed; break; }
     } catch {}
   }
-  if (!json) return { ok: false, fallback: true, actions: fallbackActions(topic, persona, rs.length, quizBias(quizResult)) };
-  const actions = normalizeActions(json.actions, rs, persona, topic);
-  return { ok: true, fallback: false, actions };
+  if (!json) return fb();
+  const roadmap = normalizeRoadmap(json.roadmap, rs, persona, topic, sources);
+  if (!roadmap.phases.length || !flattenRoadmap(roadmap).length) return fb();
+  return { ok: true, fallback: false, roadmap, actions: flattenRoadmap(roadmap) };
 }
 
 // 检索统筹统计：让前端直观看到「知乎 vs 全网」如何分工、各自贡献多少
@@ -1055,6 +1292,33 @@ function makeSearchStats({ queries, zhihuFound, webFound, zhihuChosen, webChosen
       ? '知乎直答这会儿没连上，已切换到「原始山径」模式。下面的知乎与全网结果都保留了原始讨论，没有 AI 再帮你精选整合；哪些和你的处境接近，你就重点看哪些。可信度需要你自己判断。'
       : '知乎站内讨论带真实赞数与权威等级，可信度更高，优先采用；站内不足或冷门话题由全网搜索补位，保证你听到另一种声音。',
   };
+}
+
+// 用真实角色生成 5 道自测题（兜底与"模型只返回一半"时共用）：
+// 选项直接来自各派真实立场，并附一个「不确定」选项，避免自测变成二选一。
+// 选项文案上限 30 字，保证在按钮里一行放得下（fallback-check 有对应断言）。
+function quizFromItems(roles, topic) {
+  const ref = (roles && roles.length ? roles : [{ id: 'r1', name: '知乎答主' }]).slice(0, 3);
+  const templates = [
+    { pre: '下面这条真实经验，你的第一反应更接近谁？', fb: '想逼出的盲区：你是在看论证，还是在看立场？', opt: (role) => briefText(role.stance || role.coreArg || role.name, 30) },
+    { pre: '这条经验在什么前提下才成立，超出该前提是否就失效？', fb: '想逼出的盲区：你是否把“特定条件下成立”当成了“普遍真理”？', opt: (role) => `只在「${briefText(role.name, 12)}」的局部处境（城市/资历/客户群）下才成立` },
+    { pre: '如果只看反对意见，下面哪条对这条经验的质疑最有力？', fb: '想逼出的盲区：你是否只收集支持自己的证据？', opt: (role) => briefText(role.rebuts?.[0]?.text || role.rebuts?.[0]?.quote || `另一派认为：${role.stance || role.coreArg}`, 30) },
+    { pre: '这条经验的结论最依赖哪个未经验证的前提？', fb: '想逼出的盲区：你是否把假设当成了事实？', opt: (role) => `前提是：${briefText(role.name, 12)} 的城市、资历、客户群和你差不多` },
+    { pre: '结合你的城市/时间压力/背景，这条经验对你当前处境的可借鉴度有多高？', fb: '想逼出的盲区：你是否在照搬别人的处境？', opt: (role) => `若处境和「${briefText(role.name, 16)}」接近，优先听这一派` },
+  ];
+  return templates.map((tpl, i) => {
+    const r = ref[i % ref.length];
+    const opts = ref.map((role) => ({ label: tpl.opt(role), side: role.id }));
+    opts.push({ label: '不确定 / 还没想清楚', side: null });
+    return {
+      // 题干只给问题，不挂 messy 的文章标题；正文摘要交给「主流观点」卡片
+      scenario: `关于"${topic}"，${tpl.pre}`,
+      options: opts,
+      prompt: '你更倾向哪一边？',
+      feedback: tpl.fb,
+      analysis: `对照「${briefText(r.name, 20)}」的具体前提再判断。`,
+    };
+  });
 }
 
 // 直答彻底失败时的真实数据兜底：仍返回合法结构，内容全部来自真实知乎搜索
@@ -1074,31 +1338,7 @@ export function realDataFallback(items, topic, pt, selected = []) {
     { dim: '看反对与边界', guide: '专门找和你直觉相反的回答，想想它成立的前提是什么。' },
     { dim: '看最新一线实践', guide: '优先读近一年的回答，过时的行业判断可能已经变天。' },
   ];
-  const ref = (roles.length ? roles : [{ id: 'r1', name: '知乎答主' }]).slice(0, 3);
-  const quizTemplates = [
-    { pre: '下面这条真实经验，你的第一反应更接近谁？', fb: '想逼出的盲区：你是在看论证，还是在看立场？', opt: (role) => briefText(role.stance || role.coreArg || role.name, 32) },
-    { pre: '这条经验在什么前提下才成立，超出该前提是否就失效？', fb: '想逼出的盲区：你是否把“特定条件下成立”当成了“普遍真理”？', opt: (role) => `只在「${briefText(role.name, 12)}」的局部处境（城市/资历/客户群）下才成立` },
-    { pre: '如果只看反对意见，下面哪条对这条经验的质疑最有力？', fb: '想逼出的盲区：你是否只收集支持自己的证据？', opt: (role) => briefText(role.rebuts?.[0]?.quote || `另一派认为：${role.stance || role.coreArg}`, 32) },
-    { pre: '这条经验的结论最依赖哪个未经验证的前提？', fb: '想逼出的盲区：你是否把假设当成了事实？', opt: (role) => `前提是：${briefText(role.name, 12)} 的城市、资历、客户群和你差不多` },
-    { pre: '结合你的城市/时间压力/背景，这条经验对你当前处境的可借鉴度有多高？', fb: '想逼出的盲区：你是否在照搬别人的处境？', opt: (role) => `若处境和「${briefText(role.name, 16)}」接近，优先听这一派` },
-  ];
-  const quiz = quizTemplates.map((tpl, i) => {
-    const r = ref[i % ref.length];
-    const opts = ref.map((role) => ({
-      label: tpl.opt(role),
-      side: role.id,
-    }));
-    // 加一个「不确定」选项，让自测不只是二选一
-    opts.push({ label: '不确定 / 还没想清楚', side: null });
-    return {
-      // 题干只给问题，不挂 messy 的文章标题；正文摘要交给「主流观点」卡片
-      scenario: `关于"${topic}"，${tpl.pre}`,
-      options: opts,
-      prompt: '你更倾向哪一边？',
-      feedback: tpl.fb,
-      analysis: `对照「${briefText(r.name, 20)}」的具体前提再判断。`,
-    };
-  });
+  const quiz = quizFromItems(roles, topic);
 
   const lowConfidence = (items || []).length < 3;
   const summary = lowConfidence
@@ -1291,19 +1531,11 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
   const timeP = persona.timePressure || '';
   const confusion = persona.confusion || topic;
   const edu = persona.education || '';
-  // 每个行业的三派（真实存在的冲突立场），mock 兜底用
-  const FACTIONS = {
-    ai: ['刘看山·算法派', '刘看山·产品派', '刘看山·商业化派'],
-    live: ['刘看山·运营派', '刘看山·内容派', '刘看山·投流派'],
-    finance: ['刘看山·研究派', '刘看山·交易派', '刘看山·客户派'],
-    media: ['刘看山·内容派', '刘看山·渠道派', '刘看山·品牌派'],
-    it: ['刘看山·工程派', '刘看山·架构派', '刘看山·业务派'],
-    hr: ['刘看山·招聘派', '刘看山·组织派', '刘看山·员工派'],
-    sport: ['刘看山·训练派', '刘看山·赛事派', '刘看山·康复派'],
-    logistics: ['刘看山·供应链派', '刘看山·仓配派', '刘看山·运力派'],
-  };
-  const fk = FACTIONS[(ind || '').toLowerCase()] || ['刘看山·技术派', '刘看山·业务派', '刘看山·资源派'];
-  const formOf = (n) => n.replace('刘看山·', '') + '形态';
+  // 通用三派：用"谁在说"的真实身份，而不是按行业硬编码派系名。
+  // 之前硬编码"刘看山·算法派"等只覆盖 8 个行业，其余退化成"技术派/业务派/资源派"，
+  // 且把刘看山这个 IP 形象当成了某种立场的人。现在任何行业/岗位都成立。
+  const fk = [`正在做${sub}的一线人`, `招过${sub}的面试官`, `从别的方向转进${sub}的人`];
+  const formOf = ['一线从业者', '招聘视角', '转行过来人'];
   const mkSrc = (s, vote) => ({
     title: `知乎高赞讨论：「${sub}」· ${s}`,
     url: 'https://www.zhihu.com/search?type=content&q=' + encodeURIComponent(topic + ' ' + s),
@@ -1319,9 +1551,9 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     industryName: ind,
     subName: sub,
   });
-  const mk = (id, name, stance, arg, bestFor, boundary, s1, s2, reb) => ({
-    id, name, form: formOf(name), avatar: '🐻‍❄️',
-    persona: `${idName}的${name.replace('刘看山·', '')}：信奉在${ind}·${sub}里靠真功夫说话`,
+  const mk = (id, idx, name, stance, arg, bestFor, boundary, s1, s2, reb) => ({
+    id, name, form: formOf[idx], avatar: '🐻‍❄️',
+    persona: `${idName}视角下的${name}：在${ind}·${sub}里靠真功夫说话`,
     stance, coreArg: arg, bestFor, boundary,
     matchReason,
     sources: ['来源1', '来源2'],
@@ -1329,14 +1561,14 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     rebuts: reb,
   });
   const roles = [
-    mk('r1', fk[0],
+    mk('r1', 0, fk[0],
       `在${sub}里先做出一个真实的小成果`,
       `想搞懂"${topic}"，对${idName}来说最有效的是先在${sub}里动手做一个真实的小尝试。你会在做的过程中撞到真问题，这些问题比任何高赞回答都更能帮你形成自己的判断。`,
       `${idName}、缺真实项目经历的人。`,
       '前提是这个尝试真问题驱动、有取舍思考，不能是跟风凑数。',
       '从0到1实战路径', '新手如何落地第一个项目',
       [{ to: 'r2', text: `光有框架没用，你不去真做"${topic}"，永远停在纸面，一上手就露怯。` }]),
-    mk('r2', fk[1],
+    mk('r2', 1, fk[1],
       `先搭一个判断"${topic}"的行业框架`,
       `别急着冲进去。"${topic}"在${ind}·${sub}里水很深，先搭一个判断框架（目标—路径—风险）再行动，才不会被人带节奏。很多人不是不努力，是连"什么算做好"都没想清楚就盲动。`,
       `已有经历但表达混乱、容易被追问带偏的人。`,
@@ -1344,7 +1576,7 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
       '最被低估的结构化能力', '如何把复杂问题拆清楚',
       [{ to: 'r1', text: `你闷头做"${topic}"却讲不清为什么，在懂行的人眼里就是瞎折腾。` },
        { to: 'r3', text: '方向当然重要，但光看方向不落地，你永远只是个"评论家"。' }]),
-    mk('r3', fk[2],
+    mk('r3', 2, fk[2],
       `先搞清"${topic}"在${sub}里的方向和真实反馈`,
       `你们都在聊"怎么干${topic}"，却忽略了最现实的：动手前先搞清方向对不对、有没有人能给你真实反馈。选错方向、闭门造车，努力全打水漂。`,
       `信息敏感、时间紧的人。`,
@@ -1356,7 +1588,7 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
     ok: true, mock: true,
     topic: `${topic}（${idName} · ${ind} · ${sub}）`,
     conflict: {
-      summary: `在「${ind}·${sub}」领域，关于"${topic}"，同一个刘看山却分裂成 ${fk.length} 种样子在吵架——每个派单独听都对，合起来却打架。${idName}最懵的，恰恰是"该信哪派"。`,
+      summary: `在「${ind}·${sub}」领域，关于"${topic}"，同一个问题却有 ${fk.length} 种说法在打架——每种说法单独听都有它的道理，合起来却互相矛盾。${idName}最懵的，恰恰是"该信哪一种"。`,
       roles,
     },
     framework: {
@@ -1398,15 +1630,83 @@ function topicMock(topic, persona = { identityName: '准入行', industryName: '
           { label: `"只听行家意见，容易变成人云亦云的评论家。"`, side: 'r2' },
         ],
         prompt: '你站哪边？',
-        feedback: '三派互有盲区：技术派怕"只干不想"，资源派怕"只问不干"，业务派怕"只看不落地"。',
+        feedback: '三派互有盲区：一线的人怕"只干不想"，招聘方怕"看着漂亮扛不住追问"，转行的人怕"只问不干"。',
         analysis: '最狠的质疑通常是戳中"把一种工具当成全部答案"。每条质疑都有对应靶子，选择哪条取决于你认为当前讨论最缺什么。',
       },
+      {
+        scenario: `下面这三条理由里，哪一条**最依赖一个没被验证过的前提**？`,
+        options: [
+          { label: `"我做完一个小东西就能证明能力"`, side: 'r1' },
+          { label: `"这个方向缺人，所以门槛不会太高"`, side: 'r2' },
+          { label: `"转行过来的人更能吃苦，所以有优势"`, side: 'r3' },
+        ],
+        prompt: '你站哪边？',
+        feedback: '这题在考：你能不能分清"事实"和"我假设它是事实"。',
+        analysis: '三条都能成立，但各自依赖不同前提：作品是否被这个方向认可、缺人是否等于门槛低、能吃苦是否是可迁移的竞争力。先去验证前提，再谈结论。',
+      },
+      {
+        scenario: `结合你的处境` + (city ? `（${city}）` : '') + (timeP ? `、时间压力「${timeP}」` : '') + `，眼下你最该先采信哪一种说法？`,
+        options: [
+          { label: `先听一线的：做出东西再说，别空想`, side: 'r1' },
+          { label: `先听招聘方的：搞清门槛再投入，别白跑`, side: 'r2' },
+          { label: `先听转行过来人的：搞清这条路到底通不通`, side: 'r3' },
+        ],
+        prompt: '你站哪边？',
+        feedback: '这题没有标准答案，考的是"你现在的处境最缺哪一块"。',
+        analysis: timeP
+          ? `你填的时间压力是「${timeP}」：时间越紧，越该先搞清门槛（招聘方视角），避免把有限时间投在进不去的方向上。`
+          : `时间越紧越该先搞清门槛（招聘方视角），时间宽裕才值得先做一个完整作品（一线视角）。`,
+      },
     ],
-    actions: [
-      { task: `围绕"${confusion}"，` + (city ? `在${city}的` : '在') + `${sub}里找一个真实对象，写下它的 3 个痛点并各给一个改进方案。`, why: '同时练框架拆解 + 输出，检验你到底"听得懂"还是"做得出"。', role: 'r1' },
-      { task: `找 1 位${sub}在行的人做 15 分钟信息访谈` + (city ? `（优先${city}本地）` : '') + `，只问："你判断${confusion}最看重什么？"`, why: '用真实视角校准"该信哪派"，别只在知乎高赞里打转。', role: 'r2' },
-      { task: `用 STAR 法准备 1 个关于"${confusion}"的${sub}小故事` + (edu ? `（结合你的背景：${edu.slice(0, 36)}…）` : '') + `，讲 3 分钟并录下来听一遍。`, why: '把实干家的弹药变成谋略家也能听懂的结构化表达。', role: 'r3' },
-    ],
+    actions: (() => {
+      const bucket = routeBucket(timeP);
+      const whens = bucket === 'urgent' ? ['今天', '今天', '本周', '本周']
+        : bucket === 'short' ? ['今天', '本周', '本周', '本月']
+          : ['本周', '本月', '本月', '三个月内'];
+      const inCity = city ? `（${city}）` : '';
+      return [
+        {
+          when: whens[0],
+          hypothesis: `假设：我现在的背景，在「${confusion}」这件事上是加分，不是硬伤`,
+          where: `BOSS直聘 / 实习僧 / 拉勾 / LinkedIn，搜「${sub}」` + (city ? `，地点选${city}` : ''),
+          steps: `1. 搜「${sub}」收集 5 条真实 JD；2. 摘出出现最多的 3 个硬性要求（学历 / 工具 / 项目）；3. 把自己的背景逐条对照，标"已满足 / 部分满足 / 不满足"；4. 把最不匹配的 1 条单独记下来`,
+          done: `《岗位对照表》1 份：5 条 JD 链接或截图 + 3 个硬性要求 + 自身对照结果`,
+          goSignal: `若 5 条里有 3 条以上的要求你能对上，说明这个方向够得着，继续往下做`,
+          stopSignal: `若 5 条几乎都卡在同一个你短期补不上的硬门槛，先换相邻方向，别硬撞`,
+          role: 'r2',
+        },
+        {
+          when: whens[1],
+          hypothesis: `假设：真正在做这件事的人，说的和我想的不一样`,
+          where: `脉脉 / 知乎 / 小红书 / 校友群${inCity}，找正在做「${sub}」的人`,
+          steps: `1. 写一段 50 字自我介绍 + 请教请求；2. 同时约 3 位从业者；3. 争取 2 次 15 分钟以上对话；4. 只问"你当时最难过的那道坎是什么、重来一次会先做什么"`,
+          done: `《访谈纪要》1 份：2 位过来人 + 每人 3 个关键问答 + 至少 1 条和你原本想的不一样的发现`,
+          goSignal: `若对方给的动作具体可落地，且至少 1 人说"你这种背景有机会"`,
+          stopSignal: `若多数说"现在基本不招"或建议互相矛盾，说明信息还不足，先补认知再行动`,
+          role: 'r1',
+        },
+        {
+          when: whens[2],
+          hypothesis: `假设：我能交出一样"求职时拿得出手"的小东西`,
+          where: `你熟悉的文档工具（飞书 / Notion / 语雀）+ 公开平台（知乎 / 即刻）`,
+          steps: `1. 挑 1 个你真熟悉的小问题；2. 写 1 页方案（问题 → 怎么解决 → 要什么数据 → 怎么算做成）；3. 发给 1 位从业者或公开求反馈；4. 收集 3 条反馈并改掉 1 处`,
+          done: `最小作品 1 份：1 页方案 + 3 条反馈记录 + 1 处修改说明`,
+          goSignal: `若对方说"思路对""点抓得准"，或你自己写的时候不卡壳`,
+          stopSignal: `若连"它到底解决什么问题"都讲不清，先补基本功再动手做`,
+          role: 'r3',
+        },
+        {
+          when: whens[3],
+          hypothesis: `假设：我能用一手事实，把最关键的那个判断验证掉`,
+          where: `上面几步的证据 + 招聘平台（真实投递）`,
+          steps: `1. 把上面 3 步的结论写成 3 条判断；2. 每条配 1 条现实证据（JD / 访谈原话 / 反馈）；3. 用 STAR 写成 1 页简历；4. 真实投出 5 份并记录回复情况`,
+          done: `求职包 1 套：3 条判断 + 对应证据 + 1 页简历 + 投递记录（≥5 份）`,
+          goSignal: `若拿到至少 1 次回复，或有人愿意聊你的作品`,
+          stopSignal: `若投出 5~10 份零回复，先收窄到一个主赛道重投，而不是继续海投`,
+          role: 'r1',
+        },
+      ];
+    })(),
     sources: MOCK.search(topic),
   };
 }

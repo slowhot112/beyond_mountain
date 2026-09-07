@@ -3,14 +3,18 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { join, extname, normalize } from 'node:path';
+import { join, extname, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import * as zhihu from './zhihu.js';
 import * as oauth from './oauth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DIST = 'E:/kan-dist'; // React 构建产物（唯一托管目录；旧版 public/ 原型已删除）
+// React 构建产物托管目录：默认本仓库 dist/（云端 Linux 与队友开箱即用，构建产物就在这里）；
+// 本机如需自定义交付目录可用 KAN_DIST 覆盖（如 KAN_DIST=E:/kan-dist，Windows）。
+// 路径统一经 resolve/join 归一化（Windows 下 join/normalize 会产出反斜杠），
+// 保证下方 startsWith 判目录穿越时两段分隔符一致，否则会误判 403（页面打不开）。
+const DIST = process.env.KAN_DIST ? resolve(process.env.KAN_DIST) : join(__dirname, 'dist');
 
 // 读取 .env（极简实现，避免额外依赖）
 function loadEnv() {
@@ -209,6 +213,8 @@ const server = createServer(async (req, res) => {
       const roles = Array.isArray(body.roles) ? body.roles : [];
       const quizResult = body.quizResult || null;
       const persona = body.persona || {};
+      // 本次检索到的真实资料：作为路线生成的"事实锚"，任务的事实断言只能引用它们或标 verify
+      const sources = Array.isArray(body.sources) ? body.sources : [];
       // auto=1 标记来自"后台预生成"路径，受额度保护约束；手动点"重做"不带此标记，可绕过
       const auto = !!body.auto;
       if (!topic || !roles.length) return sendJson(res, { ok: false, code: 'MISSING', message: '缺少 topic 或 roles' }, 400);
@@ -216,7 +222,7 @@ const server = createServer(async (req, res) => {
       if (auto && zhidaAutoCalls >= AUTO_REGEN_CAP) {
         return sendJson(res, { ok: false, reason: 'quota', message: '今日直答额度接近上限，已为你保留初版行动地图，可手动点「重做一份行动地图」' });
       }
-      const r = await zhihu.generateActions(SECRET, topic, roles, quizResult, persona);
+      const r = await zhihu.generateActions(SECRET, topic, roles, quizResult, persona, sources);
       if (auto) zhidaAutoCalls++;
       return sendJson(res, { ok: true, data: r });
     }

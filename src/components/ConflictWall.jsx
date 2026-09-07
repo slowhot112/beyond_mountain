@@ -87,26 +87,33 @@ function LongText({ text, max = 120 }) {
       <button
         type="button"
         className="link-btn"
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((o) => !o); }}
       >{open ? '收起' : '展开全文'}</button>
     </span>
   );
 }
 
-function PreviewLine({ s, i }) {
-  const core = s.coreArg || s.stance || '';
-  const short = core.length > 70 ? `${esc(core.slice(0, 70))}…` : esc(core);
+// 折叠卡只留 meta 行；立场句由名字下方的 .role-viewpoint 承担，避免重复
+function PreviewLine({ s }) {
   const items = s.sourceItems || [];
   const zh = items.filter((it) => (it.source || 'zhihu') !== 'web').length;
   const web = items.length - zh;
   return (
     <div className="role-preview">
-      <span className="role-preview-core">{short}</span>
       <span className="role-preview-meta">
-        {items.length ? `来源 ${items.length} 条（知乎 ${zh} · 全网 ${web}） · ` : ''}适合 {esc((s.bestFor || '').slice(0, 24) || '…')}
+        {items.length ? `来源 ${items.length} 条（知乎 ${zh} · 全网 ${web}） · ` : ''}适合 {esc((s.bestFor || '').slice(0, 26) || '…')}
       </span>
     </div>
   );
+}
+
+// 立场句：名字旁边必须一眼能看出这派主张什么。转述前缀（该答主认为/分享…）去掉，
+// 直接亮出主张本身；正文口语开场无法自动剔除时，截取有信息量的开头部分即可。
+function stanceLine(s) {
+  const raw = String(s.stance || s.coreArg || '').trim();
+  if (!raw) return '';
+  const v = raw.replace(/^(?:该答主认为|该答主分享|该答主觉得|答主认为|答主觉得|答主分享|其中一方认为|另一方认为|有人认为|ta认为|ta觉得|高赞答主认为|知乎答主认为)[：:]?\s*/g, '').trim();
+  return v.length > 92 ? `${v.slice(0, 92)}…` : v;
 }
 
 export default function ConflictWall({ conflict, persona, onNext }) {
@@ -137,13 +144,22 @@ export default function ConflictWall({ conflict, persona, onNext }) {
               <div className="role-id">
                 <span className="role-avatar">{s.avatar || '刘'}</span>
                 <div>
-                  <div className="role-name">{esc(s.name || s.stance || `角色 ${i + 1}`)}</div>
-                  <div className="role-form">{esc(s.form || s.stance || '')}</div>
+                  <div className="role-name">
+                    {esc(s.name || s.stance || `角色 ${i + 1}`)}
+                    {s.form && <span className="role-form-badge">{esc(s.form)}</span>}
+                  </div>
+                  {openIdx !== i && stanceLine(s) && (
+                    <div className="role-viewpoint">“{esc(stanceLine(s))}”</div>
+                  )}
                 </div>
               </div>
-              <span className="role-toggle">{openIdx === i ? '收起 ▲' : '展开 ▼'}</span>
+              <button
+                type="button"
+                className="role-toggle"
+                onClick={(e) => { e.stopPropagation(); toggle(i); }}
+              >{openIdx === i ? '收起 ▲' : '展开 ▼'}</button>
             </header>
-            {openIdx !== i && <PreviewLine s={s} i={i} />}
+            {openIdx !== i && <PreviewLine s={s} />}
             {openIdx === i && (
               <div className="role-body">
                 <div className="role-stance-box">{esc(s.stance)}</div>

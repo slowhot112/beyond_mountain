@@ -9,7 +9,7 @@
 //   - GET /api/hot → {ok:true, data:{mock:!SECRET, items}}；DEMO 下 items 为 3 条 mock
 //   - GET /api/search?q= → 缺 q 400 MISSING_Q；否则 {ok:true, data:{mock:!SECRET, items}}
 //   - POST /api/alchemy 最小合法体 {topic, persona?, queries?}（server.mjs:164-171；src/App.jsx:58-62 实际发送形状）
-//     DEMO → {ok:true, data:{ok,mock:true,topic,conflict:{roles},framework,quiz[3],actions,sources}}
+//     DEMO → {ok:true, data:{ok,mock:true,topic,conflict:{roles},framework,quiz[5],actions,sources}}
 //   - POST /api/resume 空 text → 400 + {ok:false, code:'EMPTY_TEXT'}（server.mjs:198，在任何额度调用之前）
 //   - POST /api/parse-doc（multipart 文件）→ MarkItDown 未启动/解析失败 → 200 + {ok:false, code:'DOC_PARSE_FAILED'}
 //     （catch 内 sendJson 默认 200，server.mjs:190）；本机 md 服务在跑且转换成功 → {ok:true, data:{text}}
@@ -172,10 +172,10 @@ async function runDemoSuite(health) {
   const roles = d?.conflict?.roles;
   const quiz = d?.quiz;
   const actions = d?.actions;
-  check('d) /api/alchemy → ok:true + 四模块齐全（conflict.roles≥2 / quiz===3 / actions 非空 / framework 存在）',
+  check('d) /api/alchemy → ok:true + 四模块齐全（conflict.roles≥2 / quiz===5 / actions 非空 / framework 存在）',
     alchemy.status === 200 && alchemy.json?.ok === true
       && Array.isArray(roles) && roles.length >= 2
-      && Array.isArray(quiz) && quiz.length === 3
+      && Array.isArray(quiz) && quiz.length === 5
       && Array.isArray(actions) && actions.length >= 1
       && d?.framework && typeof d.framework === 'object',
     `status=${alchemy.status} roles=${Array.isArray(roles) ? roles.length : 'n/a'} `

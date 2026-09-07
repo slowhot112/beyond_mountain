@@ -6,12 +6,31 @@
 > （D-10 起旧版 `public/` 原型页已删除，不再有回退）。未构建就启动的话，所有页面会返回 404（页面内提示先构建），
 > 评委将直接看到错误页——构建这步不能省。
 
+## 选型结论（2026-09-06）：Railway 优于 Vercel
+
+一句话：**我们部署的是"一整台一直开着的小电脑"，Vercel 擅长的是"用完即走的临时函数"，两者不是一回事。**
+
+| 对比项 | Railway（推荐） | Vercel | 对本项目的影响 |
+|---|---|---|---|
+| 服务形态 | 常驻 Node 进程，照跑 `node server.mjs` | 只认 serverless 函数（按路由拆、有冷启动） | 现在代码零改动直接上 Railway；上 Vercel 要把 `server.mjs` 拆成十几个函数、大改 |
+| 构建产物托管 | 自己托管 `dist/`，SPA 路由自己控制 | 平台管静态托管 | Railway 与本地行为完全一致 |
+| 长耗时 AI 调用 | 无时长限制 | 免费档函数有执行时长限制 | 炼金一次要 10 秒级多次调知乎直答，Vercel 容易超时 |
+| 环境变量/密钥 | 平台 Variables，随便加 | 支持，但要逐函数配权限 | Railway 省心 |
+| 中文路径/文件名资源 | 文件系统自管 | 文件系统只读（/tmp） | 刘看山 GIF、导出等按常规文件走，Railway 无坑 |
+| OAuth 公网回调 | HTTPS 域名即支持 | HTTPS 域名即支持 | 两者持平 |
+| 费用 | 新账号送试用额度，够演示 | 免费档可用但处处受限 | Railway 够用 |
+
+结论：**Railway**。Vercel 适合"纯静态站 + 几个轻接口"的形态，我们的应用是长耗时 AI + 常驻 API + 自托管产物，
+硬塞进 Vercel 会付出大改代价、换来更多超时/冷启动风险，不值得。
+（日后若产品收敛成"纯前端展示页 + 少量接口"，再考虑把静态部分搬到 Vercel 提速。）
+
 ## 方式一：Railway（推荐，免费额度够用）
 1. 注册 https://railway.app ，用 GitHub 登录并连接本仓库。
 2. 新建 Project → Deploy from GitHub repo，选择本仓库。
-3. Railway（nixpacks）会自动执行 `npm install` + `npm run build`（package.json 里有 build 脚本），再跑 `npm start`（或自动识别 `Procfile`）。若自定义了构建流程，请确保 `npm run build` 在启动前完成。
-4. Variables 中可加 `OPENAI_API_KEY`（拿到后填，不填则跑演示模式；旧名 `ZHIHU_ACCESS_SECRET` 仍兼容，见下表）。
+3. 构建/启动已由根目录 `nixpacks.toml` 显式定义：`npm ci` → `npm run build` → `node server.mjs`，无需在页面里改任何命令。
+4. Variables 中可加 `OPENAI_API_KEY`（拿到后填，不填则跑演示模式；旧名 `ZHIHU_ACCESS_SECRET` 仍兼容，见下表）。完整变量清单见根目录 `.env.example`。
 5. 部署完成会自动给一个公网域名，`PORT` 由平台注入，无需手动设。
+6. 验证：浏览器打开公网域名；再访问 `/api/health` 看密钥与额度是否正常。
 
 ## 方式二：Render
 1. 注册 https://render.com ，New → Web Service，连接 GitHub 仓库。

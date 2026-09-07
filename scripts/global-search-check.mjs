@@ -8,9 +8,10 @@ import * as zhihu from '../zhihu.js';
 const ZHIHU_ITEMS = [
   { Title: '站内：AI 求职怎么选', ContentText: '站内高赞观点摘要', Url: 'https://www.zhihu.com/q/zs', VoteUpCount: 3000, CommentCount: 100, AuthorityLevel: '3', AuthorName: '知乎答主', ContentType: 'Answer' },
 ];
+// 检索词会做中文相关性过滤：mock 数据必须真的含"求职"等关键词，否则会被 zhihuGlobalSearch 的 filter 清空
 const WEB_ITEMS = [
-  { Title: '全网：AI 行业报告', ContentText: '全网视角摘要', Url: 'https://example.com/report', AuthorName: '某媒体', ContentType: 'Web' },
-  { Title: '全网：无 URL 来源', ContentText: '没有链接的全网内容', AuthorName: '某博客' },
+  { Title: '全网：2026 AI 求职报告：转行求职者翻倍', ContentText: '求职报告摘要：AI 产品经理岗位求职热度上升', Url: 'https://example.com/report', AuthorName: '某媒体', ContentType: 'Web' },
+  { Title: '全网：无 URL 的 AI 求职贴士', ContentText: '没有链接的求职干货内容', AuthorName: '某博客' },
 ];
 const ZHIDA_JSON = JSON.stringify({
   topic: 'AI 求职',
@@ -33,7 +34,15 @@ globalThis.fetch = async (url) => {
   else if (u.includes('zhihu_search')) body = { Data: { Items: ZHIHU_ITEMS } };
   else if (u.includes('chat/completions')) body = { choices: [{ message: { content: ZHIDA_JSON } }] };
   else body = {};
-  return { ok: true, status: 200, async text() { return JSON.stringify(body); }, async json() { return body; } };
+  // zhihuGlobalSearch 会读 r.headers.get('content-type') 与 r.arrayBuffer() 做 GBK 探测；
+  // mock 不补这两个方法，真实分支会抛 TypeError 并整段 catch 成空数组
+  return {
+    ok: true, status: 200,
+    headers: { get: () => '' },
+    async text() { return JSON.stringify(body); },
+    async json() { return body; },
+    async arrayBuffer() { return new TextEncoder().encode(JSON.stringify(body)).buffer; },
+  };
 };
 
 const results = [];

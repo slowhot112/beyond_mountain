@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { esc } from '../lib.js';
+import { esc, quizFocusRole, canGenerateFullRoute, routeMissingCount } from '../lib.js';
 
 const CONF = [
   { key: 'high', label: '很确定' },
@@ -9,6 +9,13 @@ const CONF = [
 
 const CUSTOM_SIDE = 'custom';
 const CUSTOM_TRIGGER_LABEL = '其他（自己写）';
+
+// 山头调色板：与观点墙一致，选项选中时按所属山头上色
+const HILL = ['#2f6fa8', '#4c7a5a', '#8a6a3a', '#7c5cb0', '#0e7490'];
+function hillColor(side, roles) {
+  const idx = (roles || []).findIndex((r) => r.id === side);
+  return HILL[(idx < 0 ? 0 : idx) % HILL.length];
+}
 
 // 题干默认只给前 max 字，避免整段原文堆在题目里
 function LongText({ text, max = 140 }) {
@@ -33,50 +40,17 @@ function sideDisplayName(roleMap, side) {
   return roleMap[side]?.name || side;
 }
 
-// 实时显示当前选择会如何影响后面的行动地图排序
-function QuizImpact({ sideCounts, uncertainSides, dominant, roleMap, total }) {
-  const hasAny = Object.keys(sideCounts || {}).length > 0;
-  if (!hasAny) {
-    return <div className="quiz-impact">选完立场后，这里会实时显示它如何影响后面的验证路线。</div>;
-  }
-  const domName = dominant ? sideDisplayName(roleMap, dominant[0]) : '';
-  const blind = (uncertainSides || [])
-    .map((s) => sideDisplayName(roleMap, s))
-    .filter(Boolean);
-  return (
-    <div className="quiz-impact">
-      <div className="qi-title">这一步对「脚下三步」的影响</div>
-      {dominant && (
-        <div className="qi-line">
-          当前最信 <b>{esc(domName)}</b>（{dominant[1]}/{total} 题）→ 验证路线会优先检验这一派站不站得住。
-        </div>
-      )}
-      {blind.length > 0 ? (
-        <div className="qi-line">
-          当前盲区 <b>{esc(blind.join('、'))}</b> → 会优先安排补看这些视角的论据和前提。
-        </div>
-      ) : (
-        <div className="qi-line">还没标任何「不确定」的盲区，全部答完后再回头扫一遍反方论据会更稳。</div>
-      )}
-    </div>
-  );
-}
-
-// 选项文字净化：剥掉「该答主认为/分享」这类转述前缀，避免选项读起来像文章开场白而不是一个可选择的判断
-function cleanLabel(s) {
-  let t = String(s || '').trim();
-  t = t.replace(/^(?:该答主认为|该答主分享|该答主觉得|答主认为|答主觉得|答主分享|其中一方认为|另一方认为|有人认为|有答主认为|ta认为|ta觉得|知乎答主认为|高赞答主认为)[：:]?\s*/g, '');
-  if (t.length > 46) t = `${t.slice(0, 46)}…`;
-  return t;
-}
-
-export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions }) {
+export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, initialProgress = null }) {
   if (!quiz || !quiz.length) return null;
-  const [answered, setAnswered] = useState({});
+  const [answered, setAnswered] = useState(() => initialProgress?.answers || {});
   const [customDraft, setCustomDraft] = useState({});
   const [editingCustom, setEditingCustom] = useState({});
   const total = quiz.length;
   const answeredCount = Object.keys(answered).length;
+  const legacySummary = !initialProgress?.answers && Number(initialProgress?.answeredCount) > 0;
+  // 与行动地图的联动门槛：答满 4 题才够格生成完整路线，不足只能看初版
+  const missing = routeMissingCount({ answeredCount, total });
+  const canGen = canGenerateFullRoute({ answeredCount, total });
 
   const roleMap = useMemo(() => {
     const map = {};
@@ -112,8 +86,9 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
   // 把当次自测结果实时上报，供行动地图衔接使用
   useEffect(() => {
     if (!onProgress) return;
-    onProgress({ sideCounts, uncertainSides, answeredCount, total, dominant });
-  }, [sideCounts, uncertainSides, answeredCount, total, dominant, onProgress]);
+    if (legacySummary && answeredCount === 0) return;
+    onProgress({ sideCounts, uncertainSides, answeredCount, total, dominant, answers: answered });
+  }, [sideCounts, uncertainSides, answeredCount, total, dominant, answered, legacySummary, onProgress]);
 
   function choose(i, opt) {
     const label = typeof opt === 'string' ? opt : opt.label;
@@ -138,21 +113,31 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
     setAnswered((a) => ({ ...a, [i]: { ...a[i], confidence: c } }));
   }
 
+  // 这道题主要对应哪一派（观点墙 → 自测）：让每道题都挂在真实角色上，而不是通用问卷
+  function focusRoleOf(q) {
+    const id = quizFocusRole(q, roles);
+    return id ? (roleMap[id] || null) : null;
+  }
+
   return (
     <section className="card quiz">
-      <h2>③ 辨向自测（标出你最信 / 没把握的派）</h2>
+      <h2>④ 辨向自测（逼自己站一站）</h2>
       <p className="muted">
-        5 道题不是考试，是让你给三派打标签：哪派你更信、哪派你还没看清。
-        这些标签会直接决定后面「脚下三步」的排序——先验证你最信的，再补你没把握的。
+        先选你倾向哪一派，再标记你有多确定——如果选项里没有你真正想说的，点「其他」自己写。
         {answeredCount > 0 && <span className="quiz-progress">已答 {answeredCount}/{total}</span>}
+        {answeredCount > 0 && missing > 0 && (
+          <span className="quiz-progress dim"> · 再答 {missing} 题，雾就散透了，我就能给你指路</span>
+        )}
       </p>
+      {legacySummary && answeredCount === 0 && (
+        <div className="dep-note">
+          这是一条旧山径：当时只保存了“偏向与完成度”，没有保存逐题选择。下方可以重新作答；在你选第一题前，原来的路线与摘要不会被覆盖。
+        </div>
+      )}
       {quiz.map((q, i) => {
         const a = answered[i];
         const chosenLabel = a?.label;
         const isEditingCustom = editingCustom[i];
-        const aSideName = a?.side
-          ? (a.side === CUSTOM_SIDE ? '你自定义的立场' : (roleMap[a.side]?.name || a.side))
-          : '';
         const displayOptions = [
           ...(q.options || []),
           { label: CUSTOM_TRIGGER_LABEL, side: CUSTOM_SIDE },
@@ -160,6 +145,14 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
         return (
           <div key={i} className="quiz-item">
             <p className="quiz-scenario">{i + 1}. <LongText text={q.scenario} max={140} /></p>
+            {focusRoleOf(q) && (
+              <div className="quiz-focus">
+                这一题问的是：<b>{esc(focusRoleOf(q).name || focusRoleOf(q).form || '')}</b>
+                {focusRoleOf(q).stance
+                  ? <span className="quiz-focus-stance">（{esc(focusRoleOf(q).stance)}）</span>
+                  : null}
+              </div>
+            )}
             <div className="quiz-opts">
               {displayOptions.map((opt, j) => {
                 const label = typeof opt === 'string' ? opt : opt.label;
@@ -171,16 +164,12 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
                     key={j}
                     type="button"
                     className={`quiz-opt${isChosen ? ' chosen' : ''}`}
+                    style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
                     onClick={() => choose(i, opt)}
-                    title={role ? `${role.name || role.form || side}：${cleanLabel(label)}` : esc(label)}
+                    title={role ? `${role.name || role.stance}` : ''}
                   >
-                    {esc(cleanLabel(label))}
-                    {role && (
-                      <span className="quiz-opt-side">
-                        {esc(role.name || role.form || side)}
-                        {role.form && <span className="quiz-opt-src">{esc(role.form)}</span>}
-                      </span>
-                    )}
+                    {esc(label)}
+                    {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
                   </button>
                 );
               })}
@@ -199,12 +188,29 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
             )}
             {a && (
               <div className="quiz-feedback">
-                <div className="quiz-chosen">
-                  你选了 <b>“{esc(cleanLabel(chosenLabel))}”</b> 这派
-                  {aSideName && <span className="quiz-chosen-side">（{esc(aSideName)}）</span>}
-                </div>
+                <div className="quiz-chosen">你倾向：<b>{esc(chosenLabel)}</b></div>
+                {/* 观点墙 → 自测的联动说明：选了哪一派，就在验证它的哪个论点 / 暴露它的哪个前提 */}
+                {a.side === CUSTOM_SIDE ? (
+                  <div className="quiz-link">
+                    这是<b>你自己认的路</b>，不在现有几个山头里；我会把它单独留一条，等你去走一趟。
+                  </div>
+                ) : (() => {
+                  const r = a.side ? roleMap[a.side] : null;
+                  if (!r) return null;
+                  return (
+                    <div className="quiz-link">
+                      你选了「{esc(r.name || a.side)}」→ 等于去检验它<b>最硬的那句话</b>：{esc(r.coreArg || r.stance || '')}
+                      {r.boundary
+                        ? <div className="quiz-premise">它成立的前提：{esc(r.boundary)}——前提要是站不住，这话就得打个折。</div>
+                        : null}
+                      {a.confidence === 'low'
+                        ? <div className="quiz-premise">你标了「不确定」→ 这一派还<b>罩在雾里</b>，下次我陪你先去摸清。</div>
+                        : null}
+                    </div>
+                  );
+                })()}
                 <div className="quiz-confidence">
-                  <span className="lbl">有几分把握？</span>
+                  <span className="lbl">你有多确定？</span>
                   {CONF.map((c) => (
                     <button
                       key={c.key}
@@ -214,25 +220,15 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
                     >{c.label}</button>
                   ))}
                 </div>
-                {!a.confidence && (
-                  <div className="quiz-conf-hint">选「不确定」的派会记成你的盲区，后面会优先安排补看。</div>
-                )}
                 {a.confidence && (
                   <div className="quiz-conf-note">
                     {a.confidence === 'low'
-                      ? '不确定也没关系——这恰好是一片你还没看清的岔口，正是该补的盲区。'
+                      ? '不确定也没关系——这恰好是一片还罩着雾的岔口，正是你该去摸清的地方。'
                       : a.confidence === 'high'
                         ? '很确定？回头看解析时，专门找「和你相反」的那派论据，检验自己是不是只信了一边。'
                         : '一般确定说明你看到了两边道理，继续看解析会帮你把模糊处坐实。'}
                   </div>
                 )}
-                <QuizImpact
-                  sideCounts={sideCounts}
-                  uncertainSides={uncertainSides}
-                  dominant={dominant}
-                  roleMap={roleMap}
-                  total={total}
-                />
                 <div><b>回响：</b>{esc(q.feedback)}</div>
                 {q.analysis && <div className="quiz-analysis"><b>拆解：</b>{esc(q.analysis)}</div>}
               </div>
@@ -240,11 +236,15 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
           </div>
         );
       })}
-      {answeredCount === total && (
+      {answeredCount > 0 && (
         <div className="quiz-summary">
-          <div>辨向完成。</div>
+          <div>
+            {canGen
+              ? '雾散了，可以给你指路了。'
+              : <>再答 <b>{missing}</b> 题，我才能给你画出下山的路（下面这版只是雾里看山，别拿它下结论）。</>}
+          </div>
           {dominant && (
-            <div>你目前的偏向：<b>{esc(sideDisplayName(roleMap, dominant[0]))}</b>（{dominant[1]}/{total} 题）。这一选择已生效——「脚下三步」会把验证你偏信这一派是否站得住的路线排在最前，你偏的派先被检验，而不是替你拍板。三派并非非此即彼，也建议补另外两派视角。</div>
+            <div>你目前的偏向：<b>{esc(sideDisplayName(roleMap, dominant[0]))}</b>（{dominant[1]}/{total} 题）。三派并非非此即彼，建议补另外两派视角。</div>
           )}
           {uncertainSides.length > 0 ? (
             <div className="quiz-blind">
@@ -254,10 +254,15 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions 
           ) : (
             <div>你对所有题都给出了确定程度。真正的高手不只站对边，更知道自己哪里可能错——回头把每题「相反立场」的论据也读一遍。</div>
           )}
-          {onGotoActions && (
+          {onGotoActions && canGen && (
             <button type="button" className="chip primary quiz-to-actions" onClick={onGotoActions}>
-              按我的辨向结果生成脚下三步 →
+              按我认的方向，画出脚下这条路 →
             </button>
+          )}
+          {canGen && answeredCount < total && (
+            <div className="quiz-partial muted">
+              还有 {total - answeredCount} 题没答：你答过的 {answeredCount} 题会算进这条路，没答的那几派我不瞎猜。
+            </div>
           )}
         </div>
       )}

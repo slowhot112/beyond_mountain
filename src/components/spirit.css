@@ -21,22 +21,24 @@
   pointer-events: none;
 }
 .spirit-bubble {
-  position: absolute;
-  right: 108px;
-  bottom: 26px;
+  position: fixed;
+  right: 130px;
+  bottom: 42px;
   min-width: 220px;
-  max-width: min(320px, calc(100vw - 150px));
+  max-width: min(340px, calc(100vw - 160px));
   width: max-content;
   background: #fff;
-  border: 1px solid #e7d9c4;
-  border-radius: 14px;
-  padding: 10px 14px;
+  border: 1px solid #bfdcf8;
+  border-radius: 12px;
+  padding: 12px 14px;
   font-size: 13px;
-  line-height: 1.5;
-  color: #5b4a36;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+  line-height: 1.55;
+  color: #203348;
+  box-shadow: 0 12px 30px rgba(31, 74, 125, 0.18);
   text-align: left;
   white-space: normal;
+  z-index: 62;
+  animation: spirit-bubble-in .22s cubic-bezier(.22, 1, .36, 1) both;
 }
 .spirit-bubble::after {
   content: '';
@@ -52,7 +54,20 @@
   right: -8px;
   bottom: 16px;
   border: 7px solid transparent;
-  border-left-color: #e7d9c4;
+  border-left-color: #bfdcf8;
+}
+.spirit-bubble-copy { display: block; }
+.spirit-bubble-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.spirit-bubble-actions button {
+  min-height: 34px; border-radius: 8px; padding: 6px 11px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.spirit-bubble-primary { border: 1px solid #0084ff; background: #0084ff; color: #fff; }
+.spirit-bubble-primary:hover { background: #006fd6; border-color: #006fd6; }
+.spirit-bubble-dismiss { border: 1px solid transparent; background: transparent; color: #66778a; }
+.spirit-bubble-dismiss:hover { background: #eef5fc; color: #24496f; }
+@keyframes spirit-bubble-in {
+  from { opacity: 0; transform: translateX(8px) translateY(4px); }
+  to { opacity: 1; transform: translateX(0) translateY(0); }
 }
 
 .spirit-panel {
@@ -63,7 +78,7 @@
   max-width: calc(100vw - 32px);
   height: 520px;
   max-height: calc(100vh - 160px);
-  background: #fffdf8;
+  background: #ffffff;
   border: 1px solid #ecdcc2;
   border-radius: 18px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
@@ -77,12 +92,12 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, #fff4e2, #ffe9cf);
+  background: linear-gradient(135deg, #f0f7ff, #e7f2ff);
   border-bottom: 1px solid #f0e0c4;
 }
 .spirit-head-gif { width: 40px; height: 40px; border-radius: 10px; }
 .spirit-id { flex: 1; }
-.spirit-name { font-weight: 700; color: #6b4f2a; font-size: 15px; }
+.spirit-name { font-weight: 700; color: #0058b0; font-size: 15px; }
 .spirit-sub { font-size: 12px; }
 .spirit-body {
   flex: 1;
@@ -91,7 +106,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: #fffdf8;
+  background: #ffffff;
 }
 .spirit-msg { display: flex; }
 .spirit-msg.user { justify-content: flex-end; }
@@ -105,12 +120,12 @@
   white-space: pre-wrap;
 }
 .spirit-msg.assistant .spirit-bubble-txt {
-  background: #f4ead6;
+  background: #e7f2ff;
   color: #4f3c23;
   border-bottom-left-radius: 4px;
 }
 .spirit-msg.user .spirit-bubble-txt {
-  background: #ff8a4c;
+  background: #0084ff;
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -119,7 +134,7 @@
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid #f0e0c4;
-  background: #fffaf0;
+  background: #f6faff;
 }
 .spirit-input textarea {
   flex: 1;
@@ -148,17 +163,17 @@
   border-radius: 14px;
   text-align: center;
   color: #9c8a6f;
-  background: #fffaf0;
+  background: #f6faff;
 }
 .growth-map-empty b { color: #7a5c33; }
 
 /* 检索统筹比例条 */
-.search-stats { margin: 14px 0 6px; padding: 12px 14px; background: #fffaf0; border: 1px solid #f0e2c8; border-radius: 12px; }
+.search-stats { margin: 14px 0 6px; padding: 12px 14px; background: #f6faff; border: 1px solid #f0e2c8; border-radius: 12px; }
 .ss-title { font-weight: 700; color: #7a5c33; display: block; margin-bottom: 6px; }
 .ss-line { display: block; line-height: 1.6; color: #5b4a36; font-size: 14px; }
 .ss-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; margin: 10px 0 8px; background: #eee; }
 .ss-fill { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
-.ss-fill.zhihu { background: linear-gradient(135deg, #ff8a4c, #ff6a3d); }
+.ss-fill.zhihu { background: linear-gradient(135deg, #0084ff, #0a6cff); }
 .ss-fill.web { background: linear-gradient(135deg, #4a90d9, #3a78c2); }
 .ss-reason { display: block; font-size: 13px; line-height: 1.6; color: #6b5a44; }
 .ss-warn { color: #b5642a; }
@@ -167,4 +182,4 @@
 .role-preview-meta { color: #9c8a6f; }
 .source-card.web { border-color: #bcd4ee; box-shadow: inset 0 0 0 1px #e3eefb; }
 .src-badge.web { background: #e3eefb; color: #2f6db0; }
-.src-badge.zhihu { background: #ffe3d2; color: #c85a2a; }
+.src-badge.zhihu { background: #e7f2ff; color: #0058b0; }

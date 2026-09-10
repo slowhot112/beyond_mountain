@@ -24,16 +24,6 @@ async function getTesseract() {
   return Tesseract;
 }
 
-// 调 Node 后端 /api/parse-doc（可选拓展：MarkItDown 服务，未启动会失败）
-export async function parseDocViaServer(file, onProgress) {
-  const fd = new FormData();
-  fd.append('file', file, file.name || 'resume.bin');
-  onProgress && onProgress(10);
-  const data = await api('/api/parse-doc', { method: 'POST', body: fd });
-  onProgress && onProgress(100);
-  return data.text;
-}
-
 // PDF → 文本（pdfjs，文字层）
 async function pdfToText(file) {
   const pdfjs = await getPdfJs();
@@ -52,8 +42,6 @@ async function pdfToText(file) {
 export async function fileToText(file, onOcrProgress) {
   const name = (file.name || '').toLowerCase();
   const type = file.type || '';
-  console.log('[fileToText] type:', type, 'name:', name);
-
   // 1) 纯文本类直接前端读，最稳
   if (name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.markdown') ||
       (type.startsWith('text/') && !type.includes('html'))) {
@@ -71,10 +59,9 @@ export async function fileToText(file, onOcrProgress) {
       },
     });
     const text = (res.data && res.data.text) || '';
-    console.log('[fileToText] tesseract text length:', text.length);
     onOcrProgress && onOcrProgress(100);
     if (text && text.trim()) return text;
-    throw new Error('图片文字识别失败或结果为空，请检查图片清晰度，或改用 PDF / 文字版简历');
+    throw new Error('这张图里的字我没认出来，换个清楚点的图，或用文字版简历');
   }
 
   // 3) PDF：前端 pdfjs 读文字层（主链路）
@@ -82,22 +69,12 @@ export async function fileToText(file, onOcrProgress) {
     let scannedLike = false;
     try {
       const text = await pdfToText(file);
-      console.log('[fileToText] pdfjs text length:', text.length);
       if (text && text.trim()) return text;
       scannedLike = true; // 文字层为空，大概率是扫描版 PDF
-    } catch (e) {
-      console.warn('[fileToText] pdfjs failed:', e.message);
-    }
-    // 可选拓展兜底：MarkItDown 服务若在运行（未来配合 markitdown-ocr 插件可覆盖扫描件），值得一试
-    try {
-      const text = await parseDocViaServer(file);
-      if (text && text.trim()) return text;
-    } catch (e) {
-      console.warn('[fileToText] server MarkItDown failed:', e.message);
-    }
+    } catch (e) { /* 不记录文件信息；由下方给用户可操作的提示 */ }
     throw new Error(scannedLike
-      ? '该 PDF 没有文字层（可能是扫描版）。请上传文字版 PDF / DOCX / TXT，或将内容粘贴为文字'
-      : 'PDF 解析失败，请重试或改用文字粘贴');
+      ? '这个 PDF 像是扫描件（整页就是张图），复制不出字。换文字版 PDF / Word / TXT，或把内容粘过来'
+      : '这个 PDF 我没读出来，再试一次，或直接把文字粘过来');
   }
 
   // 4) DOCX：前端 mammoth（主链路）
@@ -106,31 +83,16 @@ export async function fileToText(file, onOcrProgress) {
       const buf = await file.arrayBuffer();
       const res = await mammoth.extractRawText({ arrayBuffer: buf });
       if (res.value && res.value.trim()) return res.value;
-    } catch (e) {
-      console.warn('[fileToText] mammoth failed:', e.message);
-    }
-    // 可选拓展兜底：MarkItDown 服务
-    try {
-      const text = await parseDocViaServer(file);
-      if (text && text.trim()) return text;
-    } catch (e) { /* 服务未启动则忽略 */ }
-    throw new Error('DOCX 解析失败，请重试或改用文字粘贴');
+    } catch (e) { /* 不记录文件信息；由下方给用户可操作的提示 */ }
+    throw new Error('这个 Word 文件我没读出来，再试一次，或直接把文字粘过来');
   }
 
-  // 5) 其余冷门格式（.doc / .xls / .ppt / .html 等）：仅可选拓展的 MarkItDown 能解析
-  try {
-    const text = await parseDocViaServer(file, onOcrProgress);
-    if (text && text.trim()) return text;
-    throw new Error('服务端返回空文本');
-  } catch (e) {
-    console.warn('[fileToText] server MarkItDown failed:', e.message);
-  }
-  // 实在解析不了：当作纯文本试试
+  // 5) 其余格式只在浏览器尝试按文本读取；原始文件不上传后端。
   try {
     const t = await file.text();
     if (t && t.trim()) return t;
   } catch {}
-  throw new Error('无法解析该文件。支持 PDF / DOCX / TXT / MD / 图片，或将内容粘贴为文字');
+  throw new Error('这个文件我读不了。支持 PDF / Word / TXT / 图片，或直接把内容粘过来');
 }
 
 // 加载内置样例（public/sample-resume.md，随 Vite 构建打包到 dist/）

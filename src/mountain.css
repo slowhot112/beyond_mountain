@@ -1,0 +1,63 @@
+/* ===========================================================
+   看山视觉层（山外山 UI 强化）
+   只增强、不改原 styles.css 的任何规则；用到原文件里的
+   --zhihu / --zhihu-soft / --green / --bad / --fog / --line / --paper 等变量。
+   =========================================================== */
+
+/* 1) 远山剪影：顶部一条淡蓝远山，所有结果页共享（Landing 用 .far-hills-home） */
+.far-hills {
+  height: 44px;
+  width: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='44' viewBox='0 0 1200 44'%3E%3Cpath d='M0 36 L200 14 L360 28 L520 8 L700 24 L880 12 L1060 26 L1200 16' fill='none' stroke='%230084ff' stroke-opacity='0.18' stroke-width='2'/%3E%3Cpath d='M0 42 L240 26 L440 38 L640 22 L840 36 L1040 24 L1200 34' fill='none' stroke='%230084ff' stroke-opacity='0.10' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: top center;
+  background-size: auto 44px;
+  opacity: .95;
+  pointer-events: none;
+  margin-bottom: -8px;
+}
+.far-hills-home { margin: 0 auto 14px; max-width: 520px; }
+
+/* 2) 导航 → 登山路标：done 的节点插小旗，current 节点带山标 */
+.logic-chain .lc-node { border-radius: 999px; }
+.logic-chain .lc-node.done .lc-dot { background: var(--zhihu); border-color: var(--zhihu); color: #fff; }
+.logic-chain .lc-node.done .lc-dot::after { content: '🚩'; font-size: 11px; line-height: 1; }
+.logic-chain .lc-node.current { border-color: var(--zhihu); background: var(--zhihu-soft); }
+.logic-chain .lc-node.current .lc-dot { background: var(--zhihu); border-color: var(--zhihu); box-shadow: 0 0 0 3px rgba(0,132,255,.18); color: #fff; }
+.logic-chain .lc-node.current .lc-label { color: var(--zhihu); font-weight: 700; }
+.logic-chain .lc-node.current .lc-label::before { content: '⛰ '; }
+
+/* 3) 首页“我的山径”→ 山路节点：竖线当山径，走过的插旗、未走的空心点 */
+.growth-map::before { background: var(--line-strong); }
+.map-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--line-strong);
+  position: relative; transition: all .15s;
+}
+.map-node.has-fb .map-dot { background: var(--zhihu); border-color: var(--zhihu); }
+.map-node.has-fb .map-dot::after { content: '🚩'; font-size: 10px; position: absolute; top: -8px; left: 1px; }
+.map-node.has-fb .map-card { border: 1px solid var(--zhihu); background: var(--zhihu-soft); }
+.map-node.pending .map-card { border: 1px dashed var(--line-strong); }
+
+/* 4) 观点墙 → 每个山头一条色块（颜色由 JSX 内联，按角色序号取 HILL 调色板） */
+.role-hill { display: inline-block; width: 6px; height: 22px; border-radius: 3px; margin-right: 8px; vertical-align: middle; flex: 0 0 auto; }
+.role-head { display: flex; }
+
+/* 5) 自测 → 选项选中时按所属山头上色（颜色由 JSX 内联） */
+.quiz-opt.chosen { font-weight: 600; }
+
+/* 6) 行动地图 → 左侧山径色条 + 小旗状态（done绿 / down红 / unclear灰虚线） */
+.rmp-tasks { border-inline-start: 2px dashed var(--line-strong); margin-inline-start: 4px; padding-inline-start: 14px; }
+.rmp-task { border: 1px solid var(--line-strong); }
+.rmp-task.done { border-color: var(--green); }
+.rmp-task.down { border-color: var(--bad); }
+.rmp-task.unclear { border-color: var(--fog); border-style: dashed; }
+.rmp-task-head .rmp-check { font-weight: 600; }
+
+/* 7) 结果页顶部来源提示：默认收起为一行，点开才展开细节 */
+.source-meta-bar { margin: 6px 0 2px; }
+.source-meta-bar .smb-detail { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.chip.ghost.sm { padding: 4px 10px; font-size: 12px; }
+
+/* 8) 行动任务卡：折叠「怎么走 · 依据」按钮的视觉 */
+.rmp-toggle { width: 100%; text-align: left; margin: 4px 0 2px; padding-left: 0; color: var(--zhihu); }

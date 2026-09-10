@@ -21,7 +21,7 @@ const APIID_LABELS = {
   zhihu_search: '知乎搜索',
   global_search: '全网搜索',
   user_data: '用户数据',
-  knowledge: '知识库',
+  knowledge: '你炼过的',
   tools: '小工具',
 };
 

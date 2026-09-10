@@ -2,11 +2,11 @@ import React from 'react';
 
 // 观山主线：处境卡 → 观山台（总览）→ 主流观点 → 判断力自测（含信谁框架）→ 行动地图
 const NODES = [
-  { key: 'card', label: '处境卡', step: 'card' },
+  { key: 'card', label: '山脚', step: 'card' },
   { key: 'hub', label: '观山台', step: 'result0' },
-  { key: 'wall', label: '主流观点', step: 'result1' },
-  { key: 'quiz', label: '判断力自测', step: 'result2' },
-  { key: 'action', label: '行动地图', step: 'result3' },
+  { key: 'wall', label: '听回声', step: 'result1' },
+  { key: 'quiz', label: '岔口', step: 'result2' },
+  { key: 'action', label: '行动路线', step: 'result3' },
 ];
 
 // 把当前 step 映射到逻辑链的“当前节点”序号
@@ -19,19 +19,24 @@ function currentIndex(step) {
   return -1;
 }
 
-export default function LogicChain({ current, onGoto, quizDone }) {
+export default function LogicChain({ current, onGoto, quizDone, visited = [] }) {
   const ci = currentIndex(current);
+  const seen = new Set(visited);
   return (
     <ol className="logic-chain" aria-label="观山主线">
       {NODES.map((n, i) => {
-        const state = i < ci ? 'done' : i === ci ? 'current' : 'upcoming';
+        const state = i === ci ? 'current' : seen.has(n.step) ? 'done' : 'upcoming';
         const locked = n.key === 'action' && !quizDone; // 行动地图依赖自测
         return (
           <React.Fragment key={n.key}>
             <li
               className={`lc-node ${state}${locked ? ' locked' : ''}`}
               onClick={() => !locked && onGoto(n.step)}
+              role="button"
+              tabIndex={locked ? -1 : 0}
+              onKeyDown={(e) => { if (!locked && (e.key === 'Enter' || e.key === ' ')) onGoto(n.step); }}
               aria-current={state === 'current' ? 'step' : undefined}
+              aria-disabled={locked ? 'true' : undefined}
               title={locked ? '需先完成判断力自测' : n.label}
             >
               <span className="lc-dot" aria-hidden="true" />

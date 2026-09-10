@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { esc, brief, normTitle, personaLabel } from '../lib.js';
 
+// 山头调色板：每个观点角色对应一条固定的山色，贯穿观点墙→自测→行动地图
+const HILL = ['#2f6fa8', '#4c7a5a', '#8a6a3a', '#7c5cb0', '#0e7490'];
+
 // 后端偶尔会把 boundary 写成"代表个人观点"这类空话，前端兜底反向生成一条具体边界
 function cleanBoundary(s) {
   const b = String(s.boundary || '').trim();
@@ -35,39 +38,73 @@ function cleanSourceTitle(t) {
   return s;
 }
 
-function SourceCard({ item }) {
+function sourceKind(item) {
+  if (item?.demo || item?.source === 'demo') return 'demo';
+  if (item?.source === 'web') return 'web';
+  try {
+    if (/(^|\.)zhihu\.com$/i.test(new URL(item?.url || '').hostname)) return 'zhihu';
+  } catch {}
+  return item?.url ? 'web' : 'unknown';
+}
+
+function roleSourceLabel(role, demo) {
+  if (demo) return '演示素材';
+  const first = (role?.sourceItems || []).find((item) => sourceKind(item) !== 'demo' && item?.url);
+  if (!first) return '暂无可核验原文';
+  return first.author || (sourceKind(first) === 'zhihu' ? '知乎原文' : '全网原文');
+}
+
+function SourceCard({ item, demo = false }) {
   const [flip, setFlip] = useState(false);
   // 全网结果没有点赞数据（网页不点赞），它按权威等级参与排序；这里把来源与可信度标出来，让"信谁"有依据
-  const isWeb = item.source === 'web';
+  const kind = sourceKind(item);
+  const isWeb = kind === 'web';
+  const isDemo = demo || kind === 'demo';
   const parts = [];
   if (item.author) parts.push(item.author);
-  if (item.voteUp) parts.push(`${item.voteUp} 赞`);
+  if (!isDemo && item.voteUp) parts.push(`${item.voteUp} 赞`);
   const meta = parts.join(' · ');
   const title = cleanSourceTitle(item.title);
+  function toggleFlip() { setFlip((f) => !f); }
+  function onKeyDown(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFlip(); }
+  }
   return (
-    <div className={`source-card${flip ? ' flipped' : ''}${isWeb ? ' web' : ''}`} onClick={() => setFlip((f) => !f)}>
+    <div
+      className={`source-card${flip ? ' flipped' : ''}${isWeb ? ' web' : ''}${isDemo ? ' demo' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={flip}
+      aria-label={`${title}，${flip ? '收起摘要' : '查看摘要'}`}
+      onClick={toggleFlip}
+      onKeyDown={onKeyDown}
+    >
       <div className="source-front">
         <div className="source-title">{esc(title)}</div>
         <div className="source-badges">
-          <span className={`src-badge ${isWeb ? 'web' : 'zhihu'}`}>{isWeb ? '全网' : '知乎'}</span>
-          {item.authority ? <span className="src-badge auth">权威 {esc(String(item.authority))} 级</span> : null}
+          <span className={`src-badge ${isDemo ? 'demo' : (isWeb ? 'web' : 'zhihu')}`}>{isDemo ? '演示' : (isWeb ? '全网' : '知乎')}</span>
+          {!isDemo && item.authority ? <span className="src-badge auth">分量 {esc(String(item.authority))} 级</span> : null}
         </div>
         <div className="source-meta">{esc(meta || '翻面看梗概')}</div>
       </div>
       <div className="source-back">
         <div className="source-brief">{esc(brief(item.summary))}</div>
-        <a href={item.url} target="_blank" rel="noreferrer" className="source-link" onClick={(e) => e.stopPropagation()}>{isWeb ? '打开原文 →' : '打开知乎原文 →'}</a>
+        {isDemo || !item.url
+          ? <span className="source-link source-link-disabled">演示素材，不打开外部原文</span>
+          : <a href={item.url} target="_blank" rel="noreferrer" className="source-link" onClick={(e) => e.stopPropagation()}>{isWeb ? '打开原文 →' : '打开知乎原文 →'}</a>}
       </div>
     </div>
   );
 }
 
 function RebutItem({ r, roles }) {
-  const target = typeof r === 'string' ? null : roles.find((x) => x.id === r.to);
-  const text = typeof r === 'string' ? r : (r.text || '');
+  // 兼容两种字段写法：新 {to, text} 与旧存档 {target, quote}
+  const to = typeof r === 'string' ? '' : (r.to || r.target || '');
+  const target = to ? roles.find((x) => x.id === to) : null;
+  const text = typeof r === 'string' ? r : (r.text || r.quote || '');
   // 如果角色名带「·」，只显示派系前缀，避免 target 名长得像文章标题、和来源卡片视觉重复
-  const targetFull = target?.name || target?.stance || r.to;
-  const targetShort = (target?.name?.split('·')[0]?.trim()) || target?.name || target?.stance || r.to;
+  const targetFull = target?.name || target?.stance || to;
+  const targetShort = (target?.name?.split('·')[0]?.trim()) || target?.name || target?.stance || to;
   return (
     <div className="rebut-item">
       <span className="rebut-arrow">→</span>
@@ -87,38 +124,57 @@ function LongText({ text, max = 120 }) {
       <button
         type="button"
         className="link-btn"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((o) => !o); }}
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
       >{open ? '收起' : '展开全文'}</button>
     </span>
   );
 }
 
-// 折叠卡只留 meta 行；立场句由名字下方的 .role-viewpoint 承担，避免重复
-function PreviewLine({ s }) {
+function PreviewLine({ s, i }) {
+  const core = s.coreArg || s.stance || '';
+  const short = core.length > 70 ? `${esc(core.slice(0, 70))}…` : esc(core);
   const items = s.sourceItems || [];
-  const zh = items.filter((it) => (it.source || 'zhihu') !== 'web').length;
-  const web = items.length - zh;
+  const allDemo = items.length > 0 && items.every((it) => sourceKind(it) === 'demo');
+  const zh = items.filter((it) => sourceKind(it) === 'zhihu').length;
+  const web = items.filter((it) => sourceKind(it) === 'web').length;
   return (
     <div className="role-preview">
+      <span className="role-preview-core">{short}</span>
       <span className="role-preview-meta">
-        {items.length ? `来源 ${items.length} 条（知乎 ${zh} · 全网 ${web}） · ` : ''}适合 {esc((s.bestFor || '').slice(0, 26) || '…')}
+        {items.length ? (allDemo ? `演示素材 ${items.length} 条 · ` : `来源 ${items.length} 条（知乎 ${zh} · 全网 ${web}） · `) : ''}适合 {esc((s.bestFor || '').slice(0, 24) || '…')}
       </span>
     </div>
   );
 }
 
-// 立场句：名字旁边必须一眼能看出这派主张什么。转述前缀（该答主认为/分享…）去掉，
-// 直接亮出主张本身；正文口语开场无法自动剔除时，截取有信息量的开头部分即可。
-function stanceLine(s) {
-  const raw = String(s.stance || s.coreArg || '').trim();
-  if (!raw) return '';
-  const v = raw.replace(/^(?:该答主认为|该答主分享|该答主觉得|答主认为|答主觉得|答主分享|其中一方认为|另一方认为|有人认为|ta认为|ta觉得|高赞答主认为|知乎答主认为)[：:]?\s*/g, '').trim();
-  return v.length > 92 ? `${v.slice(0, 92)}…` : v;
-}
-
-export default function ConflictWall({ conflict, persona, onNext }) {
+export default function ConflictWall({ conflict, persona, onNext, demo = false, sourceStats }) {
+  const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
+  const [taskStarted, setTaskStarted] = useState(false);
   if (!conflict) return null;
-  const [openIdx, setOpenIdx] = useState(null); // 默认全折叠，避免一进来就被单个山头占满屏
+
+  const firstRole = conflict.roles?.[0];
+  const fallbackTask = {
+    verify: `先验证“${(firstRole?.stance || conflict.topic || '这条观点').slice(0, 54)}”是否真的适合你的处境。`,
+    input: persona?.confusion ? '你的当前困惑，加上 1 个真实岗位或具体机会。' : '1 个真实岗位或具体机会，以及你现在的判断。',
+    action: '找 1 个真实岗位，记录它的学历、技能和筛选要求；再对照今天看到的观点，写下“符合 / 不符合 / 还不确定”。',
+    done: '你留下了一条真实记录，并能说清楚它支持了哪条观点，或让哪条观点需要修正。',
+  };
+  const task = conflict.currentTask || conflict.nextTask || fallbackTask;
+  const sourceItems = (conflict.roles || []).flatMap((role) => role?.sourceItems || []);
+  const hasZhihuSources = Number(sourceStats?.zhihuChosen || 0) > 0
+    || sourceItems.some((item) => sourceKind(item) === 'zhihu');
+  const hasWebSources = Number(sourceStats?.webChosen || 0) > 0
+    || sourceItems.some((item) => sourceKind(item) === 'web');
+  const hasVerifiableSources = hasZhihuSources || hasWebSources;
+  const sourceIntro = demo
+    ? `下面是根据你的处境生成的示例观点，共 ${conflict.roles.length} 个山头。`
+    : !hasVerifiableSources
+      ? '本次没有找到可核验原文，下面内容只能作为待验证假设。'
+      : hasZhihuSources && hasWebSources
+        ? `下面整理了知乎与全网来源中的 ${conflict.roles.length} 个山头。`
+        : hasZhihuSources
+          ? `下面整理了知乎原始来源中的 ${conflict.roles.length} 个山头。`
+          : `本次未找到合适的知乎来源，下面整理了可打开核对的全网资料，共 ${conflict.roles.length} 个山头。`;
 
   function toggle(i) {
     setOpenIdx((cur) => (cur === i ? null : i)); // 手风琴：展开一个，其他收起
@@ -126,8 +182,9 @@ export default function ConflictWall({ conflict, persona, onNext }) {
 
   return (
     <section className="card wall">
-      <h2>② 众声对照（先看清山势）</h2>
-      <p className="muted">下面是知乎上互相交锋的 {conflict.roles.length} 个硬立场。先全部扫一眼标题和一句话摘要，再点开看详情；翻面可见原文梗概。该信谁，下一步再辨。</p>
+      <div className="wall-kicker">{demo ? '01 · 演示观点' : hasVerifiableSources ? '01 · 观点与原文' : '01 · 待验证假设'}</div>
+      <h2>同一个问题，为什么会有不同答案？</h2>
+      <p className="muted">{sourceIntro}先看每条观点的主张、适用处境和边界，再决定哪条值得你验证。</p>
 
       {persona && (() => {
         const pl = personaLabel(persona);
@@ -135,41 +192,39 @@ export default function ConflictWall({ conflict, persona, onNext }) {
         return <div className="wall-persona">你的处境：{esc(pl)}（下面每个观点都结合它来呈现，而非泛泛而谈）</div>;
       })()}
 
-      <blockquote className="conflict-summary">{esc(conflict.summary)}</blockquote>
+      <blockquote className="conflict-summary"><span className="summary-label">这次分歧</span>{esc(conflict.summary)}</blockquote>
 
       <div className="roles">
         {conflict.roles.map((s, i) => (
           <article key={i} className={`role-card${openIdx === i ? ' active' : ''}`}>
-            <header className="role-head" onClick={() => toggle(i)}>
+            <button
+              type="button"
+              className="role-head"
+              aria-expanded={openIdx === i}
+              aria-controls={`role-body-${i}`}
+              onClick={() => toggle(i)}
+            >
               <div className="role-id">
-                <span className="role-avatar">{s.avatar || '刘'}</span>
+                <span className="role-hill" style={{ background: HILL[i % HILL.length] }} />
+                <span className={`role-mark role-mark-${(i % 5) + 1}`} aria-hidden="true">{i + 1}</span>
                 <div>
-                  <div className="role-name">
-                    {esc(s.name || s.stance || `角色 ${i + 1}`)}
-                    {s.form && <span className="role-form-badge">{esc(s.form)}</span>}
-                  </div>
-                  {openIdx !== i && stanceLine(s) && (
-                    <div className="role-viewpoint">“{esc(stanceLine(s))}”</div>
-                  )}
+                  <div className="role-name">{esc(s.name || s.stance || `第 ${i + 1} 派`)}</div>
+                  <div className="role-form">{esc(s.form || s.stance || '')}</div>
                 </div>
               </div>
-              <button
-                type="button"
-                className="role-toggle"
-                onClick={(e) => { e.stopPropagation(); toggle(i); }}
-              >{openIdx === i ? '收起 ▲' : '展开 ▼'}</button>
-            </header>
-            {openIdx !== i && <PreviewLine s={s} />}
+              <span className="role-toggle">{openIdx === i ? '收起' : '查看这条观点'}</span>
+            </button>
+            {openIdx !== i && <PreviewLine s={s} i={i} />}
             {openIdx === i && (
-              <div className="role-body">
+              <div className="role-body" id={`role-body-${i}`}>
                 <div className="role-stance-box">{esc(s.stance)}</div>
                 {s.persona && <p className="role-persona">{esc(s.persona)}</p>}
                 <p><b>最硬论据：</b><LongText text={s.coreArg} max={120} /></p>
                 <p><b>适合哪种赶路人：</b><LongText text={s.bestFor} max={80} /></p>
                 <p><b>这条路的边界：</b><LongText text={cleanBoundary(s)} max={80} /></p>
-                <p className="match-reason">为什么贴你：<LongText text={s.matchReason || '基于你的路标生成'} max={140} /></p>
+                <p className="match-reason">为什么贴你：<LongText text={s.matchReason || '按你的路标写的'} max={140} /></p>
                 <div className="source-tags">
-                  <span className="source-tag from"><span className="st-k">来源</span>{esc((s.sourceItems && s.sourceItems[0] && s.sourceItems[0].author) || '知乎真实讨论')}</span>
+                  <span className="source-tag from"><span className="st-k">来源</span>{esc(roleSourceLabel(s, demo))}</span>
                   <span className="source-tag match"><span className="st-k">匹配</span>{esc(s.matchReason || '你的路标')}</span>
                 </div>
                 <div className="rebut">
@@ -177,7 +232,7 @@ export default function ConflictWall({ conflict, persona, onNext }) {
                   {makeFallbackRebut(s, conflict.roles).map((r, k) => <RebutItem key={k} r={r} roles={conflict.roles} />)}
                 </div>
                 <div className="sources">
-                  <span className="muted">原文脚印（点击翻面）：</span>
+                  <span className="muted">{demo ? '示例脚印（点击翻面）：' : '原文脚印（点击翻面）：'}</span>
                   {(() => {
                     // 前端兜底去重：后端已经按归一化标题去重，这里再按渲染顺序去重一次
                     const seen = new Set();
@@ -189,7 +244,7 @@ export default function ConflictWall({ conflict, persona, onNext }) {
                       return true;
                     });
                     return uniq.length
-                      ? uniq.map((it, j) => <SourceCard key={j} item={it} />)
+                      ? uniq.map((it, j) => <SourceCard key={j} item={it} demo={demo} />)
                       : null;
                   })()}
                 </div>
@@ -198,10 +253,26 @@ export default function ConflictWall({ conflict, persona, onNext }) {
           </article>
         ))}
       </div>
+      <section className={`current-task-card${taskStarted ? ' started' : ''}`} aria-labelledby="current-task-title">
+        <div className="current-task-kicker">02 · 把观点交给现实</div>
+        <h3 id="current-task-title">先验证一个小问题</h3>
+        <div className="current-task-grid">
+          <div className="current-task-item current-task-focus"><b>要验证什么</b><p>{esc(task.verify || task.goal || fallbackTask.verify)}</p></div>
+          <div className="current-task-item"><b>需要什么输入</b><p>{esc(task.input || task.inputs || fallbackTask.input)}</p></div>
+          <div className="current-task-item current-task-focus"><b>现在做什么</b><p>{esc(task.action || task.do || task.steps || fallbackTask.action)}</p></div>
+          <div className="current-task-item"><b>完成标准</b><p>{esc(task.done || task.output || task.acceptance || fallbackTask.done)}</p></div>
+        </div>
+        <div className="current-task-actions">
+          <button type="button" className="primary" onClick={() => setTaskStarted(true)} disabled={taskStarted}>
+            {taskStarted ? '已开始这一步' : '开始这一步'}
+          </button>
+          {taskStarted && <span className="current-task-status">完成后回来记录结果，系统不会替你提交或联系任何人。</span>}
+        </div>
+      </section>
       {onNext && (
         <div className="wall-next">
           <button type="button" className="chip primary" onClick={onNext}>
-            下一步：去辨向自测 →
+            继续做辨向自测（可选） →
           </button>
         </div>
       )}

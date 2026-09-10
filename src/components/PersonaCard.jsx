@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { STAGES, GOALS, INDUSTRIES } from '../lib.js';
 
+const liukanshanGif = (name) => '/liukanshan/' + encodeURIComponent(name);
+const LOADING_GIF = liukanshanGif('电脑_6秒_320x320_20fps_透明.gif');
+
 // 模块②：可编辑处境卡预览/确认（PRD 流程第3步）
 export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, onPasteResume, onLoadSample, resumeLoading, ocrProgress = 0, alchemyLoading, alchemyStep }) {
   const stage = STAGES.find((x) => x.id === card.stage) || STAGES[0];
@@ -10,23 +13,25 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
   const subName = card.subCustom?.trim() || card.sub || ind.subs[0];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   function save() { onEdit(draft); setEditing(false); }
 
   return (
     <section className="card personacard">
-      {alchemyLoading && (
-        <div className="alchemy-loader fullscreen">
-          <img
-            src={`/liukanshan/${encodeURIComponent('电脑_6秒_320x320_20fps_透明.gif')}`}
-            alt=""
-            className="alchemy-gif"
-          />
-          <span>{alchemyStep || '进山寻路中…'}</span>
-        </div>
-      )}
       <h2>② 确认路标</h2>
       <p className="muted">这些坐标会决定山外山去知乎的哪些山头拾脚印。所有条件都可修改，不上传简历也能继续。</p>
+
+      {alchemyLoading && (
+        <div className="pc-loading">
+          <div className="pc-loading-card">
+            <img src={LOADING_GIF} alt="刘看山正在翻资料" width="128" height="128" decoding="async" className="pc-loading-gif" />
+            <div className="pc-loading-text">{alchemyStep || '进山寻路中…'}</div>
+            <div className="pc-loading-progress" aria-hidden="true"><span /></div>
+            <div className="pc-loading-note">通常需要 30–90 秒。你可以留在此页，完成后会自动进入观山台。</div>
+          </div>
+        </div>
+      )}
 
       {!editing ? (
         <div className="pc-view">
@@ -41,13 +46,13 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
       ) : (
         <div className="pc-edit">
           <label>行囊摘要（可手动填写，或上传简历后自动整理）
-            <textarea rows={3} value={draft.education} onChange={(e) => setDraft({ ...draft, education: e.target.value })} placeholder="如：某211本科计算机，两段实习，无算法竞赛" />
+            <textarea aria-label="行囊摘要" rows={3} value={draft.education} onChange={(e) => setDraft({ ...draft, education: e.target.value })} placeholder="如：某211本科计算机，两段实习，无算法竞赛" />
           </label>
           <label>站在哪个路口
-            <textarea rows={2} value={draft.confusion} onChange={(e) => setDraft({ ...draft, confusion: e.target.value })} />
+            <textarea aria-label="站在哪个路口" rows={2} value={draft.confusion} onChange={(e) => setDraft({ ...draft, confusion: e.target.value })} />
           </label>
           <label>落脚城市
-            <input value={draft.city} onChange={(e) => setDraft({ ...draft, city: e.target.value })} placeholder="如：上海" />
+            <input aria-label="落脚城市" value={draft.city} onChange={(e) => setDraft({ ...draft, city: e.target.value })} placeholder="如：上海" />
           </label>
         </div>
       )}
@@ -55,23 +60,41 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
       <div className="pc-actions">
         {!editing ? (
           <>
-            <button className="ghost" onClick={() => setEditing(true)} disabled={alchemyLoading}>调整路标</button>
-            <button className="ghost" onClick={onUploadResume} disabled={resumeLoading || alchemyLoading}>
-              {resumeLoading
-                ? (ocrProgress > 0 ? `图片识别中 ${ocrProgress}%…` : '整理中…')
-                : '上传简历，整理行囊'}
-            </button>
-            <button className="ghost" onClick={() => {
-              const text = window.prompt('请直接粘贴简历或经历文字（支持从 PDF/Word/图片里复制出来的文字）：');
-              if (text) onPasteResume(text);
-            }} disabled={resumeLoading || alchemyLoading}>
-              粘贴经历文字
-            </button>
             <button className="primary" onClick={() => onConfirm(card)} disabled={alchemyLoading}>
-              {alchemyLoading ? '进山寻路中…' : '进山，听不同的声音'}
+              {alchemyLoading ? (alchemyStep || '进山寻路中…') : '进山，听不同的声音'}
             </button>
-            <button className="ghost" onClick={onLoadSample} disabled={resumeLoading || alchemyLoading}>没头绪？先装个样例行囊</button>
-            <span className="muted" style={{ fontSize: 12 }}>支持 PDF/DOCX/TXT/图片(JPG·PNG)</span>
+            <button className="ghost" onClick={() => setEditing(true)}>调整路标</button>
+            <details className="resume-tools">
+              <summary>用简历补充背景（可选）</summary>
+              <p className="muted">不上传也能完整使用。支持 PDF、DOCX、TXT 和图片。</p>
+              <label className={`resume-privacy${privacyAccepted ? '' : ' needs-confirmation'}`}>
+                <input type="checkbox" checked={privacyAccepted} onChange={(e) => setPrivacyAccepted(e.target.checked)} />
+                <span className="resume-privacy-copy">
+                  <b>我知道</b>：原文件只在浏览器读取，不会上传；提取出的文字会发到后端并交给模型整理。姓名、电话、邮箱不会保存到处境卡或本地历史。
+                  {!privacyAccepted && <em>先勾选，才能使用简历</em>}
+                </span>
+              </label>
+              {!privacyAccepted && (
+                <div id="resume-privacy-hint" className="resume-action-hint" role="status" aria-live="polite">
+                  <span className="resume-hint-icon" aria-hidden="true">↓</span>
+                  文件选择和粘贴经历需要先勾选上面的隐私确认；使用示例背景无需勾选，可直接体验。
+                </div>
+              )}
+              <div className="resume-tool-actions">
+                <button className="ghost" onClick={onUploadResume} aria-describedby={!privacyAccepted ? 'resume-privacy-hint' : undefined} disabled={resumeLoading || !privacyAccepted} title={!privacyAccepted ? '请先勾选隐私确认' : undefined}>
+                  {resumeLoading
+                    ? (ocrProgress > 0 ? `图片识别中 ${ocrProgress}%…` : '整理中…')
+                    : '选择简历文件'}
+                </button>
+                <button className="ghost" aria-describedby={!privacyAccepted ? 'resume-privacy-hint' : undefined} onClick={() => {
+                  const text = window.prompt('请直接粘贴简历或经历文字（支持从 PDF/Word/图片里复制出来的文字）：');
+                  if (text) onPasteResume(text);
+                }} disabled={resumeLoading || !privacyAccepted} title={!privacyAccepted ? '请先勾选隐私确认' : undefined}>
+                  粘贴经历文字
+                </button>
+                <button className="link-btn" onClick={onLoadSample} disabled={resumeLoading || alchemyLoading}>使用示例背景</button>
+              </div>
+            </details>
           </>
         ) : (
           <>

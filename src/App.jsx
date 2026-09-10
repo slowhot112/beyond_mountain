@@ -11,10 +11,14 @@ import ResumeConfirm from './components/ResumeConfirm.jsx';
 import ResultNav from './components/ResultNav.jsx';
 import SpiritGuide from './components/SpiritGuide.jsx';
 import {
-  recordTopic, recordSide, dominantSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
+  recordTopic, recordSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
   saveRecord, loadRecords, updateRecordQuiz, updateRecordRoadmap, flattenRoadmap,
+  buildAlchemyPayload, collectActionFeedback, updateRecordActionFeedback,
+  routeConfidence, routeMissingCount, canGenerateFullRoute, clearLocalData,
+  exportLocalArchive, importLocalArchive,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
+import './mountain.css';
 
 const MODE = 'live';
 
@@ -34,18 +38,56 @@ export default function App() {
   const [alchemyStep, setAlchemyStep] = useState('');
   const [quizResult, setQuizResult] = useState(null); // 当次自测结果（立场分布 + 盲区），喂给行动地图
   const [prefetchedActions, setPrefetchedActions] = useState(null); // 决策A：进入第④步时生成的"带终点完整路线"（含 roadmap）
+  const [visitedResults, setVisitedResults] = useState([]);
   const reqId = useRef(0);
   const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
+  const [metaOpen, setMetaOpen] = useState(false); // 结果页顶部来源提示：默认收起
+  const [guidePrompt, setGuidePrompt] = useState(null);
 
   useEffect(() => { setHistory(loadHistory()); setRecords(loadRecords()); }, []);
 
-  function buildCard(c) { setCard(c); setStep('card'); }
+  function go(stepName) {
+    setError(null);
+    setStep(stepName);
+    if (stepName.startsWith('result')) {
+      setVisitedResults((prev) => prev.includes(stepName) ? prev : [...prev, stepName]);
+    }
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }
+
+  function buildCard(c) { setCard(c); go('card'); }
+
+  function handleExportArchive() {
+    try {
+      const blob = new Blob([JSON.stringify(exportLocalArchive(), null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `山外山-山径-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError('山径档案导出失败，请稍后再试。'); }
+  }
+
+  async function handleImportArchive(file) {
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      const merged = importLocalArchive(payload);
+      setRecords(merged);
+      setHistory(loadHistory());
+      setError(null);
+    } catch (e) {
+      setError(e.message || '山径档案导入失败，请选择正确的 JSON 档案。');
+    }
+  }
 
   async function runAlchery() {
     const myId = ++reqId.current;
     setError(null);
     setQuizResult(null);
     setPrefetchedActions(null); // 新一轮分析，清空旧的预生成结果
+    setVisitedResults([]);
     setAlchemyLoading(true);
     const steps = ['正在知乎山头拾脚印…', '正在全网找对照脚印…', '正在把不同脚印摆成对照…', '正在给你画脚下验证路线…'];
     let stepIdx = 0;
@@ -58,10 +100,18 @@ export default function App() {
     const topicStr = card.confusion.trim();
     setTopic(topicStr);
     try {
+      // 联动：把历史存档（含上一轮的行动结果 feedback）一起交给后端，
+      // 下次炼金才知道「哪些判断已经验证过、哪条路线被现实打脸」，避免重复验证、该换路的换路。
       const data = await api('/api/alchemy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: MODE, topic: topicStr, persona, queries: buildQueries(card), records: (records || []).map((r) => ({ topic: r.topic, ts: r.ts, quiz: r.quiz, roles: r.data?.conflict?.roles })) }),
+        body: JSON.stringify(buildAlchemyPayload({
+          mode: MODE,
+          topic: topicStr,
+          persona,
+          queries: buildQueries(card),
+          records,
+        })),
       });
       if (myId !== reqId.current) return;
       if (!data || (!data.conflict && !data.topic)) throw new Error('返回数据为空或格式异常');
@@ -71,10 +121,13 @@ export default function App() {
       const rec = saveRecord({ card, data, quiz: null }); // 生成成功即自动存档，之后可完整回看
       if (rec) currentRecordId.current = rec.id;
       setRecords(loadRecords());
-      setStep('result0'); // 先进总览，由用户选择进入 ②/③/④
+      go('result0'); // 先进总览，由用户选择进入 ②/③/④
     } catch (e) {
       if (myId !== reqId.current) return;
-      setError(e.message || '网络错误');
+      if (e.name === 'AbortError') setError('这次寻找超过两分钟了。你的路标还在，可以直接重试；我们不会重复保存失败结果。');
+      else if (e.code === 'RATE_LIMITED') setError('操作有点快，请稍等一分钟再试。你的路标和已填内容都还在。');
+      else if (e.code === 'DAILY_LIMIT_REACHED') setError('今天的生成额度已用完。你可以保留路标，稍后再来；已有山径仍可正常回看。');
+      else setError(e.message || '没连上服务。你的路标还在，可以直接重试。');
     } finally {
       clearInterval(stepTimer);
       setAlchemyLoading(false);
@@ -85,35 +138,31 @@ export default function App() {
   async function handleResume(file) {
     setResumeLoading(true); setResumeErr(null); setOcrProgress(0);
     try {
-      console.log('[resume] start parse file:', file.name, file.type, file.size);
       const text = await fileToText(file, (p) => setOcrProgress(p));
-      console.log('[resume] extracted text length:', text?.length);
       if (!text || !text.trim()) {
-        setResumeErr('从文件中未识别到文字，可能是扫描版 PDF / 图片模糊 / 纯图片，请手动填写背景摘要。');
+        setResumeErr('这份文件里没读出字（可能是扫描件、图太糊，或整页就是张图），你手动填背景就行。');
         return;
       }
       const r = await extractResume(text);
-      console.log('[resume] server response:', r);
       if (r.ok && r.fields) {
         setResumeConfirm(r.fields); // 弹出确认/编辑框，用户确认后才写入
       } else if (r.reason === 'no-secret') {
-        setResumeErr(r.message || '服务器未配置 OPENAI_API_KEY（知乎直答），已跳过自动解析，请手动填写背景摘要。');
+        setResumeErr(r.message || '还没接上知乎直答，这份简历我读不了，你手动填背景就能继续。');
       } else if (r.reason === 'empty') {
         setResumeErr('上传内容为空，请检查文件后重试或手动填写。');
       } else if (r.reason === 'llm-empty') {
-        setResumeErr('大模型未返回结果（StepFun / 知乎直答），可重试或手动填写背景摘要。');
+        setResumeErr('这会儿没读出来，你可以再试一次，或手动填背景。');
       } else {
-        setResumeErr('解析未返回结构化结果，已保留文件文字，可手动填写背景摘要。');
+        setResumeErr('这份我读不出个眉目，文字我留着了，你手动整理一下就行。');
       }
     } catch (e) {
-      console.error('[resume] parse error:', e);
       const msg = e.message || '格式不支持';
       if (msg.includes('network') || msg.includes('fetch') || msg.includes('Failed to fetch')) {
-        setResumeErr('网络请求失败，请检查连接或手动填写背景摘要。');
+        setResumeErr('网没连上，你手动填背景也能继续。');
       } else if (msg.includes('tesseract') || msg.includes('worker') || msg.includes('traineddata')) {
-        setResumeErr('图片文字识别模型加载失败（网络或文件问题），请改用 PDF/文字版简历，或手动粘贴文字。');
+        setResumeErr('图片里的字这会儿认不出来，换文字版简历，或直接把文字粘过来。');
       } else {
-        setResumeErr('文件解析失败（' + msg + '），已切换手动填写。支持 PDF/DOCX/TXT/图片。');
+        setResumeErr('这份文件我读不了，已换成手动填写。支持 PDF / Word / TXT / 图片。');
       }
     } finally {
       setResumeLoading(false);
@@ -131,10 +180,10 @@ export default function App() {
       } else if (r.reason === 'no-secret') {
         setResumeErr(r.message || '服务器未配置知乎 API Secret，请手动填写背景摘要。');
       } else {
-        setResumeErr('解析未返回结构化结果，但已保留文字，可手动整理到背景摘要。');
+        setResumeErr('这份我读不出个眉目，文字我留着了，你手动整理一下就行。');
       }
     } catch (e) {
-      setResumeErr('粘贴内容解析失败：' + (e.message || '请手动填写背景摘要'));
+      setResumeErr('这段字我没读明白：' + (e.message || '请手动填写背景摘要'));
     } finally {
       setResumeLoading(false);
     }
@@ -174,7 +223,6 @@ export default function App() {
       city: f.city || c.city,
       industry: f.industry ? mapIndustry(f.industry) : c.industry,
       customIndustry: f.industry && !mapIndustry(f.industry) ? f.industry : c.customIndustry,
-      resumeFields: f, // 保留完整字段供后续展示
     }));
     setResumeConfirm(null);
   }
@@ -200,6 +248,20 @@ export default function App() {
     if (currentRecordId.current) updateRecordRoadmap(currentRecordId.current, roadmap);
   }
 
+  // 行动地图里的「做过 / 现实裁判 / 你写的反馈」写回存档：
+  // 这样下一次炼金和下一次排路线，都能读到上一轮的真实结果（反哺闭环）
+  function handleActionFeedback(feedback) {
+    if (!currentRecordId.current) return;
+    updateRecordActionFeedback(currentRecordId.current, feedback);
+    setRecords(loadRecords());
+  }
+
+  // 本次要参考的「上一轮行动结果」（排除当前正在看的这条存档）
+  const historyFeedback = useMemo(
+    () => collectActionFeedback(records, currentRecordId.current),
+    [records],
+  );
+
   // 决策B「指出变化」：找出上一条带自测结果的历史存档，供行动地图对比"你判断变了没"
   const prevRecord = useMemo(() => {
     if (!records || !records.length) return null;
@@ -219,19 +281,24 @@ export default function App() {
     // 若当年生成过完整路线，直接还原，不重复消耗直答
     if (rec.data.roadmap) setPrefetchedActions({ roadmap: rec.data.roadmap, actions: flattenRoadmap(rec.data.roadmap) });
     else setPrefetchedActions(null);
-    setStep('result0');
+    setVisitedResults(['result0', ...(rec.quiz ? ['result2'] : []), ...(rec.data.roadmap ? ['result3'] : [])]);
+    go('result0');
   }
 
-  const dom = dominantSide();
-  const domRole = dom && data ? (data.conflict?.roles || []).find((r) => r.id === dom.topId) : null;
+  // 页面解锁只看当前这一次自测；长期累计偏好不能让新一轮分析被误判为“已经答完”。
+  const currentDominant = Array.isArray(quizResult?.dominant) ? quizResult.dominant : null;
+  const currentDominantId = currentDominant?.[0] || '';
+  const currentDominantCount = currentDominant?.[1] || 0;
+  const domRole = currentDominantId && data ? (data.conflict?.roles || []).find((r) => r.id === currentDominantId) : null;
+  const quizReady = canGenerateFullRoute(quizResult);
 
   function ResultHead({ back }) {
     return (
       <div className="result-head">
         <h2>山径图：{esc0(topic)}</h2>
         <div className="result-actions">
-          {back && <button className="chip" onClick={() => setStep('result0')}>← 返回总览</button>}
-          <button className="chip" onClick={() => { setStep('onboarding'); setData(null); }}>← 重新建档</button>
+          {back && <button className="chip" onClick={() => go('result0')}>← 返回总览</button>}
+          <button className="chip" onClick={() => { go('onboarding'); setData(null); setQuizResult(null); setVisitedResults([]); }}>← 重新建档</button>
           <button className="chip primary" onClick={() => exportMd({ ...data, roadmap: (prefetchedActions && prefetchedActions.roadmap) || data?.roadmap || null })}>导出 Markdown</button>
         </div>
       </div>
@@ -248,26 +315,44 @@ export default function App() {
       )}
 
       <main className="container">
-        {error && <div className="error">{error}</div>}
+        {error && <div className="error-box" role="alert"><b>这次没走通：</b>{error}</div>}
 
         {step === 'landing' && (
           <Landing
-            onStart={() => setStep('onboarding')}
+            onStart={() => go('onboarding')}
             records={records}
             onOpen={openRecord}
+            onClear={() => {
+              clearLocalData();
+              setHistory(loadHistory());
+              setRecords([]);
+              currentRecordId.current = null;
+            }}
+            onExport={handleExportArchive}
+            onImport={handleImportArchive}
             />
         )}
 
-        <SpiritGuide records={records} currentData={data} step={step} topic={topic} />
+        <SpiritGuide records={records} currentData={data} step={step} topic={topic} prompt={guidePrompt} />
 
         {step === 'onboarding' && (
           <div className="back-row">
-            <button className="chip ghost" onClick={() => setStep('landing')}>← 返回山脚</button>
+            <button className="chip ghost" onClick={() => go('landing')}>← 返回山脚</button>
           </div>
         )}
 
         {step === 'onboarding' && (
-          <Onboarding initial={card} onBuildCard={buildCard} history={history} />
+          <Onboarding
+            initial={card}
+            onBuildCard={buildCard}
+            history={history}
+            onDraftChange={setCard}
+            onQuestionComplete={(draft) => setGuidePrompt({
+              id: `onboarding-details:${Date.now()}`,
+              type: 'onboarding-details',
+              question: draft.confusion.trim(),
+            })}
+          />
         )}
 
         {step === 'card' && card && (
@@ -303,11 +388,13 @@ export default function App() {
 
         {step.startsWith('result') && data && (
           <>
+            <div className="far-hills" aria-hidden="true" />
             <ResultNav
               current={step}
-              onGoto={(s) => setStep(s)}
-              onEditCard={() => setStep('card')}
-              quizDone={!!dom}
+              onGoto={go}
+              onEditCard={() => go('card')}
+              quizDone={quizReady}
+              visited={visitedResults}
             />
             {card && (
               <div className="persona-strip" aria-label="当前处境">
@@ -317,45 +404,90 @@ export default function App() {
                 {card.timePressure && <span className="ps-chip">时间压力：{esc0(card.timePressure)}</span>}
               </div>
             )}
-            {data.lowConfidence && (
-              <div className="low-confidence-note">
-                知乎上与你主题直接相关的高赞讨论不多，下面内容由相近主题的真实回答兜底。重点看哪些前提和你的处境接近，而不是照搬结论。
-              </div>
-            )}
+            {/* 模式标记：演示 / 真实兜底 / 真实检索，三种来源必须一眼分清，不能把示例内容当真实知乎内容。默认收起，点开才看细节 */}
+            <div className={`source-meta-bar${metaOpen ? ' open' : ''}`}>
+              <button className="chip ghost sm" onClick={() => setMetaOpen((o) => !o)}>
+                {metaOpen ? '收起来源说明 ▲' : '来源说明 ▼'}
+              </button>
+              {metaOpen && (
+                <div className="smb-detail">
+                  {data.mock && (
+                    <div className="mode-note demo">
+                      🎭 <b>{data.quotaFallback ? '今日额度已到保护线' : '当前是演示数据'}</b>：{data.quotaFallback ? '为避免继续消耗比赛额度，已自动切到完整演示结果。你仍可走完整个流程。' : '这会儿还没接上知乎，下面是一套完整的示例流程；接上之后，就换成真实讨论。'}
+                    </div>
+                  )}
+                  {!data.mock && data.fallback && (
+                    <div className="mode-note fb">
+                      🧭 <b>原始山径</b>：知乎直答这会儿没连上，下面都是<b>原样摆着的真实脚印</b>（没经过二次整理），哪些前提和你处境接近，你自己判断。
+                    </div>
+                  )}
+                  {!data.mock && !data.fallback && (
+                    <div className="mode-note live">
+                      🔗 这次的内容来自<b>知乎站内和全网翻到的真实讨论</b>，由知乎直答按你的处境整理。
+                    </div>
+                  )}
+                  {data.lowConfidence && (
+                    <div className="low-confidence-note">
+                      知乎上直接聊这个话题的高赞讨论不多，下面是相近主题的真实回答，先拿来垫一垫。重点看哪些前提和你处境接近，别照搬结论。
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {step === 'result0' && (
-              <ResultHub data={data} quizDone={!!dom} onGoto={(s) => setStep(s)} />
+              <ResultHub data={data} quizDone={quizReady} onGoto={go} />
             )}
             {step === 'result1' && (
               <>
                 <ResultHead back />
-                <ConflictWall conflict={data.conflict} persona={card} onNext={() => setStep('result2')} />
+                <ConflictWall conflict={data.conflict} persona={card} demo={!!data.mock} sourceStats={data.searchStats} onNext={() => go('result2')} />
               </>
             )}
             {step === 'result2' && (
               <>
                 <ResultHead back />
                 {data.framework && (
-                  <section className="card framework">
-                    <h2>辨山尺（判断该信谁）</h2>
-                    <p className="muted">带着这把尺子去下面的辨向自测：它会记下你每题偏向哪一派、哪里还“不确定”——正是你此刻最该看清的山势。</p>
+                  <details className="card framework framework-collapsed">
+                    <summary>答题前想多看一步？展开“辨山尺”</summary>
+                    <p className="muted">它不是必读说明，而是当你拿不准该信谁时，用来检查来源、前提和适用边界。</p>
                     <ul>{data.framework.dimensions.map((x, i) => <li key={i}><b>{x.dim}：</b>{x.guide}</li>)}</ul>
-                  </section>
+                  </details>
                 )}
                 <Quiz
                   quiz={data.quiz}
                   roles={data.conflict?.roles}
                   onAnswer={onQuizAnswer}
                   onProgress={setQuizResult}
-                  onGotoActions={() => setStep('result3')}
+                  initialProgress={quizResult}
+                  onGotoActions={() => go('result3')}
                 />
               </>
             )}
             {step === 'result3' && (
               <>
                 <ResultHead back />
-                {!dom && <div className="dep-note">请先完成【辨向自测】，才能生成专属你的脚下三步。</div>}
-                {dom && <div className="dominant muted">你偏向：<b>{esc0(domRole?.name || dom.label)}</b>（基于 {dom.n}/{dom.total} 次自测）</div>}
-                <ActionMap data={data} quizResult={quizResult} persona={card} prefetchedActions={prefetchedActions} prevRecord={prevRecord} onRouteReady={handleRouteReady} />
+                {routeConfidence(quizResult) === 'none' && (
+                  <div className="dep-note">先在岔口站一站，我才能给你画出专属的脚下三步。</div>
+                )}
+                {routeConfidence(quizResult) === 'low' && (
+                  <div className="dep-note">
+                    已答 {quizResult.answeredCount}/{(data.quiz || []).length || 5} 题，还差 <b>{routeMissingCount(quizResult)}</b> 题，雾就还散不透——
+                    下面这版是<b>雾里看山，先别当真</b>，只能给你垫一垫脚。
+                  </div>
+                )}
+                {quizReady && currentDominantId && (
+                  <div className="dominant muted">这一轮你偏向：<b>{esc0(domRole?.name || currentDominantId)}</b>（本轮 {currentDominantCount}/{quizResult.total} 题）</div>
+                )}
+                <ActionMap
+                  data={data}
+                  quizResult={quizResult}
+                  persona={card}
+                  prefetchedActions={prefetchedActions}
+                  prevRecord={prevRecord}
+                  historyFeedback={historyFeedback}
+                  onRouteReady={handleRouteReady}
+                  onFeedbackChange={handleActionFeedback}
+                />
               </>
             )}
           </>

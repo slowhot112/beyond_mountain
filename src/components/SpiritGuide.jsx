@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { api, recordToText } from '../lib.js';
 import './spirit.css';
 
@@ -13,9 +13,9 @@ const GIF = {
 };
 const gif = (f) => '/liukanshan/' + encodeURIComponent(f);
 
-const GREET = '你好，我是刘看山，陪你翻山的伙伴。你可以问我你之前炼过的炼金包，或者任何求职判断的问题——我会参考你过去的分析来回答。';
+const GREET = '你好，我是刘看山，陪你翻山的伙伴。你可以问我过去的山径记录，也可以继续聊眼前的求职判断。';
 
-export default function SpiritGuide({ records = [], currentData = null, step = 'landing', topic = '' }) {
+export default function SpiritGuide({ records = [], currentData = null, step = 'landing', prompt = null }) {
   const [open, setOpen] = useState(false);
   const [anim, setAnim] = useState('idle');
   const [bubble, setBubble] = useState(null); // 主动冒泡的一句话
@@ -24,8 +24,30 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
   const [loading, setLoading] = useState(false);
   const endRef = useRef(null);
   const firedRef = useRef({}); // 记录已触发的节点，避免重复冒泡
+  const bubbleTimerRef = useRef(null);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, open]);
+  const hideBubble = useCallback(() => {
+    window.clearTimeout(bubbleTimerRef.current);
+    setBubble(null);
+    setAnim('idle');
+  }, []);
+
+  const showBubble = useCallback((next, duration = 7500) => {
+    window.clearTimeout(bubbleTimerRef.current);
+    setBubble(next);
+    setAnim('greet');
+    bubbleTimerRef.current = window.setTimeout(() => {
+      setBubble(null);
+      setAnim('idle');
+    }, duration);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(bubbleTimerRef.current), []);
+
+  useEffect(() => {
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    endRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+  }, [messages, open]);
 
   // 三处关键节点主动冒泡（其余时间安静待机，不烦人）
   useEffect(() => {
@@ -35,23 +57,57 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
     if (step === 'landing' && records.length === 0) {
       text = '第一次来呀？先标记你的位置，我陪你炼出第一个炼金包吧～ 点我随时聊。';
     } else if (step === 'result0') {
-      text = '这是你的山径图。先登台俯瞰整片山势，有问题随时找我。';
+      text = '山径图画好了。先从“听不同声音”开始，再做自测，最后才排你的行动路线。';
     } else if (step === 'result3') {
-      text = '脚下三步排好了，先从“今天”那一步迈起，别等到下周。';
+      text = '路线排好了。先只打开第一段，做完再看后面，不用一次背完整座山。';
     }
     if (text) {
       firedRef.current[key] = true;
-      setBubble(text);
-      setAnim('greet');
-      setTimeout(() => { if (!open) setBubble(null); }, 6500);
+      showBubble({ text });
     }
-  }, [step, records.length, open]);
+  }, [step, records.length, showBubble]);
+
+  // 用户完成核心问题后再提示补充信息。延迟出现，避免和输入动作抢注意力。
+  useEffect(() => {
+    if (step !== 'onboarding' || !prompt?.id || prompt.type !== 'onboarding-details') return undefined;
+    const key = `prompt:${prompt.id}`;
+    if (firedRef.current[key]) return undefined;
+    firedRef.current[key] = true;
+    const delay = window.setTimeout(() => {
+      const details = document.getElementById('onboarding-more');
+      if (details?.open) return;
+      showBubble({
+        kind: 'onboarding-details',
+        text: '问题已经很清楚了。再补充目标城市或具体方向，观点会更贴近你的处境。',
+      }, 10000);
+    }, 900);
+    return () => window.clearTimeout(delay);
+  }, [prompt, showBubble, step]);
 
   // 打开时切到打招呼动画，关闭回到待机
   useEffect(() => {
-    if (open) { setAnim('greet'); setBubble(null); }
+    if (open) {
+      window.clearTimeout(bubbleTimerRef.current);
+      setBubble(null);
+      setAnim('greet');
+    }
     else setAnim('idle');
   }, [open]);
+
+  function openOnboardingDetails() {
+    const details = document.getElementById('onboarding-more');
+    if (details) {
+      details.open = true;
+      details.classList.remove('guide-highlight');
+      requestAnimationFrame(() => {
+        details.classList.add('guide-highlight');
+        details.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        details.querySelector('summary')?.focus();
+      });
+      window.setTimeout(() => details.classList.remove('guide-highlight'), 1400);
+    }
+    hideBubble();
+  }
 
   async function send() {
     const text = input.trim();
@@ -72,9 +128,9 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: next, kb }),
       });
-      setMessages((m) => [...m, { role: 'assistant', content: data.reply || '（无回复）' }]);
+      setMessages((m) => [...m, { role: 'assistant', content: data.reply || '（这句我没接住，换个问法试试）' }]);
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', content: '出错了：' + (e.message || '请求失败') }]);
+      setMessages((m) => [...m, { role: 'assistant', content: '没接上：' + (e.message || '请求失败') }]);
     } finally {
       setLoading(false);
       setAnim('idle');
@@ -83,15 +139,25 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
 
   return (
     <>
+      {bubble && !open && (
+        <aside className={`spirit-bubble${bubble.kind ? ` ${bubble.kind}` : ''}`} role="status" aria-live="polite">
+          <span className="spirit-bubble-copy">{bubble.text}</span>
+          {bubble.kind === 'onboarding-details' && (
+            <span className="spirit-bubble-actions">
+              <button type="button" className="spirit-bubble-primary" onClick={openOnboardingDetails}>补充路标</button>
+              <button type="button" className="spirit-bubble-dismiss" onClick={hideBubble}>暂时不用</button>
+            </span>
+          )}
+        </aside>
+      )}
       <button className="spirit-fab" aria-label="刘看山" onClick={() => setOpen((o) => !o)}>
-        <img src={gif(GIF[anim] || GIF.idle)} alt="刘看山" className="spirit-gif" />
-        {bubble && !open && <span className="spirit-bubble">{bubble}</span>}
+        <img src={gif(GIF[anim] || GIF.idle)} alt="刘看山" width="96" height="96" decoding="async" className="spirit-gif" />
       </button>
 
       {open && (
         <section className="spirit-panel" aria-label="刘看山对话">
           <header className="spirit-head">
-            <img src={gif(GIF.greet)} alt="" className="spirit-head-gif" />
+            <img src={gif(GIF.greet)} alt="" width="42" height="42" loading="lazy" decoding="async" className="spirit-head-gif" />
             <div className="spirit-id">
               <div className="spirit-name">刘看山</div>
               <div className="spirit-sub muted">陪你翻山的伙伴</div>
@@ -111,6 +177,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
 
           <div className="spirit-input">
             <textarea
+              aria-label="向刘看山提问"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
@@ -119,7 +186,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
             <button className="primary" onClick={send} disabled={loading || !input.trim()}>发送</button>
           </div>
           <div className="spirit-foot muted">
-            {records.length ? `知识库含 ${records.length} 个炼金包` : '知识库暂空，先去炼一个吧'}{currentData ? ' · 已带入当前炼金包' : ''}
+            {records.length ? `你炼过 ${records.length} 个炼金包` : '还没炼过，先炼一个吧'}{currentData ? ' · 我正看着你眼前这一个' : ''}
           </div>
         </section>
       )}

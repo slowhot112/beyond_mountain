@@ -11,7 +11,10 @@ export default function Chat({ records = [], onBack }) {
   const [loading, setLoading] = useState(false);
   const endRef = useRef(null);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    endRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+  }, [messages]);
 
   async function send() {
     const text = input.trim();
@@ -39,11 +42,11 @@ export default function Chat({ records = [], onBack }) {
   return (
     <section className="card chat">
       <div className="chat-head">
-        <h2>知识库对话</h2>
+        <h2>聊聊你炼过的</h2>
         <button className="chip ghost" onClick={onBack}>← 返回我的地盘</button>
       </div>
       <p className="muted chat-sub">
-        AI 会参考你历史炼金包来回答（轻量 RAG）。当前知识库含 {records.length} 个炼金包。
+        AI 会参考你过去炼过的来回答。你已经炼过 {records.length} 个炼金包。
       </p>
 
       <div className="chat-body">
@@ -60,6 +63,7 @@ export default function Chat({ records = [], onBack }) {
 
       <div className="chat-input">
         <textarea
+          aria-label="向山外山助手提问"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}

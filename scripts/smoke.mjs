@@ -11,7 +11,7 @@
 //   - POST /api/alchemy 最小合法体 {topic, persona?, queries?}（server.mjs:164-171；src/App.jsx:58-62 实际发送形状）
 //     DEMO → {ok:true, data:{ok,mock:true,topic,conflict:{roles},framework,quiz[5],actions,sources}}
 //   - POST /api/resume 空 text → 400 + {ok:false, code:'EMPTY_TEXT'}（server.mjs:198，在任何额度调用之前）
-//   - POST /api/parse-doc（multipart 文件）→ MarkItDown 未启动/解析失败 → 200 + {ok:false, code:'DOC_PARSE_FAILED'}
+//   - POST /api/parse-doc（multipart 文件）→ 比赛构建关闭原文件上传 → 410 FILE_UPLOAD_DISABLED
 //     （catch 内 sendJson 默认 200，server.mjs:190）；本机 md 服务在跑且转换成功 → {ok:true, data:{text}}
 //   - 未知路径 → serveStatic 回退 dist/index.html：200 + text/html（需先 npm run build）
 import { spawn } from 'node:child_process';
@@ -189,8 +189,7 @@ async function runDemoSuite(health) {
     resume.status === 400 && resume.json?.ok === false && resume.json?.code === 'EMPTY_TEXT',
     `status=${resume.status} body=${JSON.stringify(resume.json)}`);
 
-  // f) parse-doc（multipart 小文件，防悬挂 10s）：
-  //    MarkItDown 未启动/解析失败 → 200 + DOC_PARSE_FAILED；本机 md 在跑且转换成功 → ok:true 也算通过
+  // f) parse-doc（multipart 小文件，防悬挂 10s）：比赛构建应明确拒绝原文件上传
   const boundary = '----smoke' + Date.now().toString(36);
   const fileContent = 'smoke test file for parse-doc\n';
   const multipart = '--' + boundary + '\r\n'
@@ -208,15 +207,12 @@ async function runDemoSuite(health) {
     parseErr = String(e?.name === 'TimeoutError' ? '请求悬挂超过 10s（AbortError）' : e?.message || e);
   }
   if (parseDoc) {
-    const failedBranch = parseDoc.json?.ok === false && parseDoc.json?.code === 'DOC_PARSE_FAILED';
-    const okBranch = parseDoc.json?.ok === true && typeof parseDoc.json?.data?.text === 'string';
-    check('f) /api/parse-doc → 合法信封、不崩溃不悬挂（DOC_PARSE_FAILED 或 ok:true）',
-      parseDoc.status === 200 && (failedBranch || okBranch),
-      failedBranch ? '命中 DOC_PARSE_FAILED 分支（MarkItDown 未启动或解析失败）'
-        : okBranch ? '命中 ok:true 分支（本机 MarkItDown 服务在跑且转换成功）'
-        : `status=${parseDoc.status} body=${parseDoc.text.slice(0, 200)}`);
+    const disabled = parseDoc.json?.ok === false && parseDoc.json?.code === 'FILE_UPLOAD_DISABLED';
+    check('f) /api/parse-doc → 410 + FILE_UPLOAD_DISABLED（原文件不离开浏览器）',
+      parseDoc.status === 410 && disabled,
+      `status=${parseDoc.status} code=${parseDoc.json?.code || 'n/a'}`);
   } else {
-    check('f) /api/parse-doc → 合法信封、不崩溃不悬挂（DOC_PARSE_FAILED 或 ok:true）', false, parseErr);
+    check('f) /api/parse-doc → 410 + FILE_UPLOAD_DISABLED（原文件不离开浏览器）', false, parseErr);
   }
 
   // g) 未知路径 → SPA 回退 200 + HTML（需 dist/ 已构建；未构建时服务返回 404 提示）

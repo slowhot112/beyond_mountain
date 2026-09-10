@@ -15,10 +15,11 @@
 - ⚔️ **观点对峙墙**：钢人论证呈现各立场的最强论点（适合谁 / 边界 / 互相质疑），每个论点标注知乎来源，可点回原文（D-06 溯源底线）。
 - 🎯 **判断力自测**：选立场 + 写理由 + 标注确定度，反馈直指认知盲区，而非知识对错。
 - 🚶 **行动地图**：按处境卡生成这周能做的具体小行动，勾选进度本地保存。
+- 🧩 **清晰体验主线**：标记位置 → 确认路标 → 听不同声音 → 辨向自测 → 行动验证；本轮进度与长期偏好分开记录，避免老数据误解锁新路线。
 - 🐻‍❄️ **刘看山 IP 联动**：AI 把同一个刘看山分裂成几种行业派别展开交锋，贴合知乎生态。
 - ⬇️ **可分享产出**：一键导出 Markdown（对峙 + 框架 + 自测 + 行动 + 来源）。
-- 🛡️ **多级兜底，永不白屏**：无 Secret 自动走演示数据；直答限流/解析失败回落 Mock 补全（来源仍挂真实搜索结果）；简历解析浏览器端全兜底。
-- 💰 **额度保护**：文件缓存降低调用频次；健康检查走免费额度接口（`/api/v1/quota`），不烧直答 100 次/天 的配额（搜索 5000 次/天、热榜 100 次/天）。
+- 🛡️ **多级兜底，永不白屏**：无 Secret 自动走演示数据；直答限流/解析失败回落 Mock 补全；简历解析浏览器端全兜底。
+- 💰 **额度保护**：文件缓存 + 分客户端限流 + 跨重启的全局日预算；预算到顶自动切演示/兜底数据，不继续消耗比赛额度。健康检查走免费额度接口。
 
 ## 技术架构
 
@@ -36,8 +37,8 @@
 
 - **前端**：React 18 + Vite 5，组件化（`src/`）；`vite.config.js` 配置开发代理（`/api` → 3000）。
 - **后端**：Node.js（ESM，零 npm 运行时依赖），`server.mjs` 托管 `dist/` 静态产物并代理知乎 API；`zhihu.js` 封装鉴权、文件缓存与搜索/热榜/直答/额度接口。
-- **简历解析链路（浏览器端为主）**：PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js，懒加载）/ TXT·MD 直读 → `/api/resume` 结构化抽取（StepFun 优先，未配置则知乎直答兜底，均无则提示手动填写）。
-- **鉴权**：仅需赛事发放的 `Access Secret`（请求头 `Authorization: Bearer` + `X-Request-Timestamp`），**无需 OAuth**（OAuth 骨架保留但 MVP 不启用，D-05）。
+- **简历解析链路**：PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js，懒加载）/ TXT·MD 只在浏览器读取 → `/api/resume` 接收提取后的文字并做结构化整理（StepFun 优先，未配置则知乎直答兜底，均无则提示手动填写）。
+- **鉴权**：仅需赛事发放的 `Access Secret`（请求头 `Authorization: Bearer` + `X-Request-Timestamp`），**无需 OAuth**；比赛构建的 `/api/oauth/*` 路由已显式关闭。
 - **缓存**：文件系统 TTL 缓存（搜索 1h / 直答 10min / 热榜 1h），降低 API 调用频次。
 
 ## 本地运行
@@ -59,6 +60,7 @@ npm start
 
 > 知乎 API Secret 放在项目根目录 `.env`（参考 `.env.example`）：`OPENAI_API_KEY=你的密钥`（旧名 `ZHIHU_ACCESS_SECRET` 仍兼容；直答端点/模型可用 `OPENAI_BASE_URL` / `OPENAI_MODEL` 覆盖，默认即知乎直答）。
 > 没有密钥也能跑（自动走演示数据，方便体验）。
+> 需要在不消耗真实额度的情况下走查页面时，设置 `DEMO_MODE=true`。公开部署的限流与日预算参数见 `.env.example`。
 
 ## 部署
 
@@ -78,10 +80,16 @@ npm start
 | `/api/health` | GET | 健康检查（免费额度接口探测，返回剩余额度详情） |
 | `/api/hot` | GET | 知乎热榜 |
 | `/api/search?q=` | GET | 知乎搜索 |
-| `/api/alchemy` | POST / GET | 主流程：处境卡检索 + 直答生成对峙/自测/行动 |
+| `/api/alchemy` | POST | 主流程：处境卡检索 + 直答生成对峙/自测/行动 |
 | `/api/resume` | POST | 简历文本 → 结构化字段（StepFun 优先 / 直答兜底） |
-| `/api/parse-doc` | POST | 上传文档 → 纯文本（可选拓展，MarkItDown 服务） |
-| `/api/oauth/config` `/api/oauth/login` `/api/oauth/callback` | GET | OAuth 骨架（MVP 不启用，默认 MOCK） |
+| `/api/parse-doc` | — | 比赛版本关闭原文件上传，返回 `410 FILE_UPLOAD_DISABLED` |
+| `/api/oauth/*` | — | 比赛版本明确禁用，返回 `501 OAUTH_DISABLED` |
+
+### 隐私与本地数据
+
+- 简历原文件只在浏览器提取文字、不上传后端；提取后的文字会发送到本项目后端，并交给配置的模型做结构化整理。上传完全可跳过。
+- 服务端和前端都按白名单丢弃姓名、手机号、邮箱等直接身份字段；本地历史仅保留生成判断所需的处境摘要。
+- “我的山径”提供“清空本地记录”，只删除本产品使用的 `alchemy:*` 浏览器存储键。
 
 ## 项目价值
 
@@ -92,16 +100,8 @@ npm start
 ## 简历文档解析
 
 当前简历解析以**浏览器端**为主链路（PDF / DOCX / 图片 / TXT / MD 全覆盖，部署零 Python 依赖）。
-`md_server.py`（MarkItDown 封装）定位为**后续拓展模块**：仅在浏览器解析不了冷门格式（.doc / .xls / .ppt 等）
-时作为兜底，评委演示链路**不依赖**它；未来如需扫描件 OCR，可加装 `markitdown-ocr` 插件 + 视觉 LLM。
-
-```bash
-# 如需本地启用（一次性）
-pip install "markitdown[all]"
-python md_server.py        # 默认 127.0.0.1:8011；远端部署需 HOST=0.0.0.0（见 docs/DEPLOY.md 方式三）
-```
-
-> 服务地址可用环境变量覆盖：`MD_SERVICE_URL=http://127.0.0.1:9000 npm start`
+`md_server.py`（MarkItDown 封装）定位为**后续拓展模块**。出于简历隐私考虑，比赛构建不调用它，
+`/api/parse-doc` 也已关闭；未来若做独立私有部署，可在用户明确同意后接入。
 
 ## IP 与内容合规
 

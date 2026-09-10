@@ -52,12 +52,15 @@ export default function CityPicker({ value, onChange, onClose }) {
   const inputRef = useRef(null);
   const scrollYRef = useRef(0);
   const closingRef = useRef(false);
+  const previousFocusRef = useRef(null);
 
   // 记录打开弹窗时的页面滚动位置；关闭时恢复，避免页面跳到底部
   useEffect(() => {
+    previousFocusRef.current = document.activeElement;
     scrollYRef.current = window.scrollY || document.documentElement.scrollTop || 0;
     return () => {
       window.scrollTo({ top: scrollYRef.current, behavior: 'instant' });
+      previousFocusRef.current?.focus?.();
     };
   }, []);
 
@@ -114,16 +117,17 @@ export default function CityPicker({ value, onChange, onClose }) {
   }, [onClose]);
 
   return (
-    <div className="city-picker-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="city-picker">
+    <div className="city-picker-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="city-picker" role="dialog" aria-modal="true" aria-labelledby="city-picker-title">
         <div className="city-picker-head">
-          <span>选择目标城市</span>
-          <button type="button" className="city-picker-close" onClick={onClose}>✕</button>
+          <span id="city-picker-title">选择目标城市</span>
+          <button type="button" aria-label="关闭城市选择" className="city-picker-close" onClick={onClose}>✕</button>
         </div>
         <div className="city-picker-search">
           <input
             ref={inputRef}
             type="text"
+            aria-label="搜索城市名"
             placeholder="搜索城市名"
             value={query}
             onChange={(e) => { setQuery(e.target.value); scrollToTop(); }}

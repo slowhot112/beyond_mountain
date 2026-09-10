@@ -11,7 +11,13 @@ export async function api(path, opts = {}) {
   try {
     const res = await fetch(path, { ...opts, signal: opts.signal || ctrl.signal });
     const json = await res.json();
-    if (!json.ok) throw new Error(json.message || json.error || '请求失败');
+    if (!json.ok) {
+      const error = new Error(json.message || json.error || '请求失败');
+      error.code = json.code || 'REQUEST_FAILED';
+      error.status = res.status;
+      error.retryAfter = Number(res.headers.get('Retry-After')) || 0;
+      throw error;
+    }
     return json.data;
   } finally {
     clearTimeout(timer);
@@ -320,17 +326,61 @@ export function loadRecords() {
     return (Array.isArray(raw) ? raw : []).map(normalizeRecord);
   } catch { return []; }
 }
+// 低成本跨设备方案：导出/导入用户确认过的山径快照，不依赖账号和云端存储。
+// 导出时再次清理处境卡中的敏感字段，避免把原始简历或联系方式带出浏览器。
+export function exportLocalArchive() {
+  const records = loadRecords().map((r) => ({
+    ...r,
+    card: sanitizeCardForStorage(r.card),
+  }));
+  return { type: 'zhihu-alchemy-archive', v: RECORD_VERSION, exportedAt: Date.now(), records };
+}
+export function importLocalArchive(payload) {
+  const incoming = payload && typeof payload === 'object' && Array.isArray(payload.records) ? payload.records : null;
+  if (!incoming) throw new Error('这不是有效的山径档案');
+  const current = loadRecords();
+  const byId = new Map(current.map((r) => [r.id, r]));
+  incoming.forEach((r) => {
+    if (!r || typeof r !== 'object') return;
+    const safe = normalizeRecord({ ...r, card: sanitizeCardForStorage(r.card) });
+    const key = safe.id || safe.topic;
+    if (key) byId.set(key, safe);
+  });
+  const merged = pruneRecords(Array.from(byId.values()), RECORD_MAX);
+  localStorage.setItem(RECORDS_KEY, JSON.stringify(merged));
+  return merged;
+}
+export function sanitizeCardForStorage(card) {
+  if (!card || typeof card !== 'object') return card || null;
+  const { name, phone, email, idCard, address, resumeFields, ...safe } = card;
+  return safe;
+}
+
+// 只清理山外山自己的数据，不影响同域名下其他产品的 localStorage。
+export function clearLocalData() {
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key === HISTORY_KEY || key === RECORDS_KEY || key?.startsWith('alchemy:actions:') || key?.startsWith('alchemy:road:')) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+    return true;
+  } catch { return false; }
+}
 // 自动存档：生成成功就存，同话题覆盖旧的，超过上限淘汰最旧的，不用手动点保存
 export function saveRecord({ card, data, quiz }) {
   try {
     const rec = normalizeRecord({
       id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       topic: (data && data.topic) || (card && card.confusion) || '',
-      card: card || null,
+      card: sanitizeCardForStorage(card),
       data: data || null,
       quiz: quiz || null,
       fallback: !!(data && data.fallback),            // 直答失败、内容由真实搜索结果兜底生成
       lowConfidence: !!(data && data.lowConfidence),  // 相关讨论不足，由相近主题兜底
+      mock: !!(data && data.mock),                    // 演示快照不作为下一轮真实历史依据
+      mode: data && data.mock ? 'demo' : (data && data.fallback ? 'live-fallback' : 'live'),
     });
     const list = [rec, ...loadRecords().filter((r) => r.topic !== rec.topic)];
     try {
@@ -366,28 +416,156 @@ export function updateRecordRoadmap(id, roadmap) {
   } catch {}
 }
 
+// ---------- 界面联动：自测 → 行动地图 → 下次炼金（纯函数，可脱离浏览器回归测试） ----------
+// 生成「完整路线」的答题门槛：至少答满 4 题（题目不足 4 道时按实际题数算）
+export const ROUTE_MIN_ANSWERED = 4;
+
+// 路线置信度：
+// none=一题未答；low=未达门槛（只能看初版建议，必须标记低置信度）；partial=达门槛但未答满；full=答满
+export function routeConfidence(quizResult) {
+  const answered = Number(quizResult && quizResult.answeredCount) || 0;
+  const total = Number(quizResult && quizResult.total) || 0;
+  if (!answered) return 'none';
+  const need = Math.min(ROUTE_MIN_ANSWERED, total || ROUTE_MIN_ANSWERED);
+  if (answered < need) return 'low';
+  if (total && answered < total) return 'partial';
+  return 'full';
+}
+// 只有达到门槛才允许生成完整路线；不足门槛只能看初版
+export function canGenerateFullRoute(quizResult) {
+  const c = routeConfidence(quizResult);
+  return c === 'partial' || c === 'full';
+}
+// 还差几题才能生成完整路线
+export function routeMissingCount(quizResult) {
+  const answered = Number(quizResult && quizResult.answeredCount) || 0;
+  const total = Number(quizResult && quizResult.total) || 0;
+  const need = Math.min(ROUTE_MIN_ANSWERED, total || ROUTE_MIN_ANSWERED);
+  return Math.max(0, need - answered);
+}
+// 这道题主要对应哪一派：后端给了 focusRole 就用，否则从选项的 side 反推（选得最多的那派）
+export function quizFocusRole(q, roles) {
+  const direct = (q && (q.focusRole || q.role)) || '';
+  if (direct) return direct;
+  const opts = Array.isArray(q && q.options) ? q.options : [];
+  const counts = {};
+  opts.forEach((o) => {
+    const s = typeof o === 'string' ? null : (o && o.side);
+    if (s && s !== 'custom') counts[s] = (counts[s] || 0) + 1;
+  });
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (entries.length) return entries[0][0];
+  return (roles && roles[0] && roles[0].id) || '';
+}
+// 把路线任务状态（road）汇总成「上一轮到底做了什么、结果如何」，供下次炼金/下次排路线使用
+export function summarizeActionFeedback(road) {
+  const st = road && typeof road === 'object' ? road : {};
+  const out = { done: 0, up: [], down: [], unclear: [], notes: [] };
+  Object.entries(st).forEach(([k, v]) => {
+    if (!v || typeof v !== 'object') return;
+    if (String(k).startsWith('g')) return; // 毕业检查表（g0/g1…）不计入任务反馈
+    if (v.done) out.done += 1;
+    const hyp = v.hypothesis || '';
+    if (v.verdict === 'up') out.up.push(hyp);
+    else if (v.verdict === 'down') out.down.push(hyp);
+    else if (v.verdict === 'unclear') out.unclear.push(hyp);
+    if (v.note) out.notes.push({ hypothesis: hyp, note: v.note, verdict: v.verdict || '' });
+  });
+  return out;
+}
+// 汇总历史里「上一轮行动结果」（排除当前这条），最多带最近 3 条
+export function collectActionFeedback(records, excludeId) {
+  const list = (Array.isArray(records) ? records : [])
+    .filter((r) => r && r.id !== excludeId && r.actionFeedback);
+  list.sort((a, b) => (Number(b && b.ts) || 0) - (Number(a && a.ts) || 0));
+  return list.slice(0, 3).map((r) => ({ topic: r.topic || '', ts: r.ts || 0, ...(r.actionFeedback || {}) }));
+}
+// 打包 /api/actions 请求体：自测结果 + 处境 + 真实来源 + 历史行动结果，一个都不能少
+export function buildActionsPayload({ data, quizResult, persona, sources, feedback, manual }) {
+  return {
+    topic: (data && data.topic) || '',
+    roles: (data && data.conflict && data.conflict.roles) || [],
+    quizResult: quizResult || null,
+    persona: persona || {},
+    sources: Array.isArray(sources) ? sources.slice(0, 8) : [],
+    feedback: Array.isArray(feedback) ? feedback : [],
+    auto: !manual,
+  };
+}
+// 打包 /api/alchemy 请求体：历史记录要带上「上一轮行动结果」，下次炼金才知道哪些已验证过
+export function buildAlchemyPayload({ mode, topic, persona, queries, records }) {
+  return {
+    mode: mode || 'live',
+    topic,
+    persona,
+    queries: Array.isArray(queries) ? queries.slice(0, 5) : [],
+    records: (Array.isArray(records) ? records : []).map((r) => ({
+      topic: r.topic,
+      ts: r.ts,
+      quiz: r.quiz,
+      roles: r.data && r.data.conflict ? r.data.conflict.roles : undefined,
+      actionFeedback: r.actionFeedback || null,
+      mock: !!(r.mock || (r.data && r.data.mock)),
+      mode: r.mode || (r.data && r.data.mock ? 'demo' : 'live'),
+    })),
+  };
+}
+// 与上一次相比，判断/路线发生了什么变化（历史页与行动地图共用）
+export function diffRouteChange(prevRec, curQuiz, curRoles) {
+  if (!prevRec) return null;
+  const curDomId = Array.isArray(curQuiz && curQuiz.dominant) ? curQuiz.dominant[0] : null;
+  const prevQuiz = prevRec.quiz || {};
+  const prevDomId = Array.isArray(prevQuiz.dominant) ? prevQuiz.dominant[0] : null;
+  const nameOf = (roles, id) => ((roles || []).find((r) => r.id === id) || {}).name || id;
+  const ts = prevRec.ts ? new Date(prevRec.ts) : null;
+  return {
+    topic: prevRec.topic || '',
+    date: ts ? `${ts.getMonth() + 1}/${ts.getDate()}` : '',
+    prevName: prevDomId ? nameOf(prevRec.data && prevRec.data.conflict ? prevRec.data.conflict.roles : [], prevDomId) : '',
+    curName: curDomId ? nameOf(curRoles, curDomId) : '',
+    changed: !!(prevDomId && curDomId && prevDomId !== curDomId),
+    feedback: prevRec.actionFeedback || null,
+  };
+}
+// 行动结果（做完没做、现实裁判、用户写的反馈）写回存档 → 下次炼金能读到
+export function updateRecordActionFeedback(id, feedback) {
+  try {
+    const list = loadRecords();
+    const i = list.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    list[i] = normalizeRecord({ ...list[i], actionFeedback: feedback || null });
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
+  } catch {}
+}
+
 // 导出 Markdown
 export function exportMd(d) {
   let md = `# 山外山 · 观山台：${d.topic}\n\n`;
-  md += `> 不替你下结论，帮你在知乎众声里炼出自己的判断。由知乎高赞讨论 + 刘看山 AI 炼制。\n\n`;
-  md += `## 观点对峙墙\n`;
+  md += d.mock
+    ? `> 这是演示数据，用来体验完整流程；其中的示例素材不对应真实知乎文章。\n\n`
+    : `> 不替你下结论，帮你在知乎众声里炼出自己的判断。\n\n`;
+  md += `## 众声对照\n`;
   md += `> ${d.conflict?.summary || ''}\n\n`;
   (d.conflict?.roles || []).forEach((s) => {
-    const srcs = (s.sourceItems || []).map((it) => `- [${it.title}](${it.url})` + (it.author ? ` — ${it.author}` : '')).join('\n  ');
-    md += `**${s.stance}**\n- 最强论点：${s.coreArg}\n- 适合谁：${s.bestFor}\n- 边界：${s.boundary}\n- 来源文章：\n  ${srcs || (s.source || '（演示模式）')}\n\n`;
+    const srcs = (s.sourceItems || []).map((it) => {
+      const demo = it.demo || it.source === 'demo' || !it.url;
+      if (demo) return `- ${it.title} — 演示素材，不对应真实文章`;
+      return `- [${it.title}](${it.url})` + (it.author ? ` — ${it.author}` : '');
+    }).join('\n  ');
+    md += `**${s.stance}**\n- 最强论点：${s.coreArg}\n- 适合谁：${s.bestFor}\n- 边界：${s.boundary}\n- 脚印来源：\n  ${srcs || (s.source || '（演示模式）')}\n\n`;
   });
   md += `## 信谁框架\n`;
   (d.framework?.dimensions || []).forEach((x) => { md += `- **${x.dim}**：${x.guide}\n`; });
-  md += `\n## 判断力自测\n`;
+  md += `\n## 在岔口站一站\n`;
   (d.quiz || []).forEach((q, i) => {
-    md += `${i + 1}. ${q.scenario}\n   - 你的立场：${q.prompt}\n   - 反馈：${q.feedback}\n`;
+    md += `${i + 1}. ${q.scenario}\n   - 你的立场：${q.prompt}\n   - 回响：${q.feedback}\n`;
   });
   if (d.roadmap && Array.isArray(d.roadmap.phases) && d.roadmap.phases.length) {
-    md += `\n## 完整路线（决策验证 · 先验证判断，再下结论）\n`;
+    md += `\n## 完整路线（先走一步看看，再下结论）\n`;
     if (d.roadmap.goal && d.roadmap.goal.text) md += `> 终点：${d.roadmap.goal.text}\n`;
     if (d.roadmap.generatedAt) {
       const dt = new Date(d.roadmap.generatedAt);
-      md += `> 依据 ${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} 检索的真实资料整理；投递前请再核一眼最新 JD。\n`;
+      md += `> 依据 ${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')} 翻到的真实讨论整理；投之前，再核一眼最新的 JD。\n`;
     }
     md += `\n`;
     d.roadmap.phases.forEach((p) => {
@@ -395,35 +573,38 @@ export function exportMd(d) {
       if (p.focus) md += `> 这阶段要办成：${p.focus}\n`;
       if (p.phaseDone) md += `> 做到什么算过：${p.phaseDone}\n\n`;
       (p.tasks || []).forEach((a) => {
-        md += `- [ ] 验证：${a.hypothesis || ''}\n`;
-        md += `  - 去哪儿：${a.where || ''}\n`;
-        md += `  - 怎么做：${a.steps || ''}\n`;
-        md += `  - 做完算成：${a.done || ''}\n`;
+        md += `- [ ] 这一趟要试出：${a.hypothesis || ''}\n`;
+        md += `  - 往哪儿走：${a.where || ''}\n`;
+        md += `  - 怎么走：${a.steps || ''}\n`;
+        md += `  - 走到什么样算过：${a.done || ''}\n`;
         if (a.goSignal) md += `  - 该坚持：${a.goSignal}\n`;
-        if (a.stopSignal) md += `  - 该收手：${a.stopSignal}\n`;
+        if (a.stopSignal) md += `  - 该收手 / 换条路：${a.stopSignal}\n`;
         if (a.ev && a.ev.length) md += `  - 依据：${a.ev.map((e) => e.title).join('、')}\n`;
         else if (a.evVerify) md += `  - 依据：此步主要靠你去拿一手事实（不依赖网络资料）\n`;
       });
     });
     const grad = d.roadmap.graduation;
     if (grad) {
-      md += `\n### 毕业检查表\n`;
-      (grad.checklist || []).forEach((c) => { md += `- [ ] ${c.text}（拿什么验：${c.verify || ''}）\n`; });
+      md += `\n### 出师清单（最后要交的几样）\n`;
+      (grad.checklist || []).forEach((c) => { md += `- [ ] ${c.text}（拿什么看结果：${c.verify || ''}）\n`; });
       if (Array.isArray(grad.judge3)) md += `\n### 结束时只看三件事\n${grad.judge3.map((s) => `- ${s}`).join('\n')}\n`;
     }
   } else {
-    md += `\n## 行动地图（验证卡片）\n`;
+    md += `\n## 脚下路线（先试出答案，再下结论）\n`;
     (d.actions || []).forEach((a) => {
       md += `- [ ] ${a.hypothesis || a.steps || a.action || a.task || ''}\n`;
-      if (a.where) md += `  - 去哪儿：${a.where}\n`;
-      if (a.steps) md += `  - 怎么做：${a.steps}\n`;
+      if (a.where) md += `  - 往哪儿走：${a.where}\n`;
+      if (a.steps) md += `  - 怎么走：${a.steps}\n`;
       if (a.done) md += `  - 做完算成：${a.done}\n`;
       if (a.goSignal) md += `  - 该坚持：${a.goSignal}\n`;
-      if (a.stopSignal) md += `  - 该收手：${a.stopSignal}\n`;
+      if (a.stopSignal) md += `  - 该收手 / 换条路：${a.stopSignal}\n`;
     });
   }
-  md += `\n## 知乎来源\n`;
-  (d.sources || []).forEach((s) => { md += `- [${s.title}](${s.url}) — ${s.author || ''}\n`; });
+  md += d.mock ? `\n## 演示素材（不对应真实文章）\n` : `\n## 真实来源\n`;
+  (d.sources || []).forEach((s) => {
+    const demo = s.demo || s.source === 'demo' || !s.url;
+    md += demo ? `- ${s.title} — 演示素材，不对应真实文章\n` : `- [${s.title}](${s.url}) — ${s.author || ''}\n`;
+  });
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

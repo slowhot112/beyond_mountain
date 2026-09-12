@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { esc, brief, normTitle, personaLabel } from '../lib.js';
+import { esc, brief, normTitle, personaLabel, loadRoad, saveRoad } from '../lib.js';
 
 // 山头调色板：每个观点角色对应一条固定的山色，贯穿观点墙→自测→行动地图
 const HILL = ['#2f6fa8', '#4c7a5a', '#8a6a3a', '#7c5cb0', '#0e7490'];
@@ -147,9 +147,9 @@ function PreviewLine({ s, i }) {
   );
 }
 
-export default function ConflictWall({ conflict, persona, onNext, demo = false, sourceStats }) {
+export default function ConflictWall({ conflict, persona, onNext, demo = false, sourceStats, roadData = null }) {
   const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
-  const [taskStarted, setTaskStarted] = useState(false);
+  const [taskStarted, setTaskStarted] = useState(() => Boolean(roadData && loadRoad(roadData)?.__current?.started));
   if (!conflict) return null;
 
   const firstRole = conflict.roles?.[0];
@@ -174,7 +174,11 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
         ? `下面整理了知乎与全网来源中的 ${conflict.roles.length} 个山头。`
         : hasZhihuSources
           ? `下面整理了知乎原始来源中的 ${conflict.roles.length} 个山头。`
-          : `本次未找到合适的知乎来源，下面整理了可打开核对的全网资料，共 ${conflict.roles.length} 个山头。`;
+        : `本次未找到合适的知乎来源，下面整理了可打开核对的全网资料，共 ${conflict.roles.length} 个山头。`;
+  const taskIsEvidenceOnly = !demo && !hasVerifiableSources;
+  const taskVerify = taskIsEvidenceOnly
+    ? `当前没有可核验原文，先取到 1 条能打开的原始资料，再判断“${(task.verify || fallbackTask.verify).slice(0, 48)}”是否成立。`
+    : (task.verify || task.goal || fallbackTask.verify);
 
   function toggle(i) {
     setOpenIdx((cur) => (cur === i ? null : i)); // 手风琴：展开一个，其他收起
@@ -254,16 +258,19 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
         ))}
       </div>
       <section className={`current-task-card${taskStarted ? ' started' : ''}`} aria-labelledby="current-task-title">
-        <div className="current-task-kicker">02 · 把观点交给现实</div>
-        <h3 id="current-task-title">先验证一个小问题</h3>
+        <div className="current-task-kicker">02 · {taskIsEvidenceOnly ? '先把假设交给现实' : '把观点交给现实'}</div>
+        <h3 id="current-task-title">{taskIsEvidenceOnly ? '先取一条可核验证据' : '先验证一个小问题'}</h3>
         <div className="current-task-grid">
-          <div className="current-task-item current-task-focus"><b>要验证什么</b><p>{esc(task.verify || task.goal || fallbackTask.verify)}</p></div>
+          <div className="current-task-item current-task-focus"><b>{taskIsEvidenceOnly ? '先取证什么' : '要验证什么'}</b><p>{esc(taskVerify)}</p></div>
           <div className="current-task-item"><b>需要什么输入</b><p>{esc(task.input || task.inputs || fallbackTask.input)}</p></div>
           <div className="current-task-item current-task-focus"><b>现在做什么</b><p>{esc(task.action || task.do || task.steps || fallbackTask.action)}</p></div>
           <div className="current-task-item"><b>完成标准</b><p>{esc(task.done || task.output || task.acceptance || fallbackTask.done)}</p></div>
         </div>
         <div className="current-task-actions">
-          <button type="button" className="primary" onClick={() => setTaskStarted(true)} disabled={taskStarted}>
+          <button type="button" className="primary" onClick={() => {
+            setTaskStarted(true);
+            if (roadData) saveRoad(roadData, '__current', { started: true, startedAt: Date.now() });
+          }} disabled={taskStarted}>
             {taskStarted ? '已开始这一步' : '开始这一步'}
           </button>
           {taskStarted && <span className="current-task-status">完成后回来记录结果，系统不会替你提交或联系任何人。</span>}

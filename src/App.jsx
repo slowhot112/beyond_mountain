@@ -440,7 +440,7 @@ export default function App() {
             {step === 'result1' && (
               <>
                 <ResultHead back />
-                <ConflictWall conflict={data.conflict} persona={card} demo={!!data.mock} sourceStats={data.searchStats} onNext={() => go('result2')} />
+                <ConflictWall conflict={data.conflict} persona={card} demo={!!data.mock} sourceStats={data.searchStats} roadData={data} onNext={() => go('result2')} />
               </>
             )}
             {step === 'result2' && (

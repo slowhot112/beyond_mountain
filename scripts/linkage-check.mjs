@@ -93,7 +93,10 @@ localStorage.setItem('alchemy:records', JSON.stringify([rec]));
 lib.saveRoad(data, 'p0t0', { done: true, verdict: 'up', hypothesis: '岗位门槛是否卡学历', note: '投了 8 份，2 个回复' });
 lib.saveRoad(data, 'p0t1', { done: true, verdict: 'down', hypothesis: '先考证再求职是否更快' });
 lib.saveRoad(data, 'p1t0', { done: true, verdict: 'unclear' });
+lib.saveRoad(data, '__current', { started: true, startedAt: 1700000000000 });
 const roadState = lib.loadRoad(data);
+check('当前验证任务“已开始”状态可在刷新后恢复',
+  roadState.__current?.started === true && roadState.__current?.startedAt === 1700000000000);
 const fb = lib.summarizeActionFeedback(roadState);
 check('行动完成状态与反馈被汇总（做过 3 步 / 属实 1 / 打脸 1 / 待定 1）',
   fb.done === 3 && fb.up.length === 1 && fb.down.length === 1 && fb.unclear.length === 1,

@@ -900,6 +900,96 @@ a { color: var(--zhihu); }
 .link-btn { margin-left: 6px; border: none; background: none; padding: 0; color: var(--zhihu); font-size: 12px; cursor: pointer; text-decoration: underline; }
 .link-btn:hover { color: var(--zhihu-ink); }
 .quiz-scenario { line-height: 1.6; }
+.quiz-item {
+  padding: 20px 0 22px;
+  border-bottom: 1px solid var(--line);
+}
+.quiz-item:first-of-type { padding-top: 8px; }
+.quiz-item:last-of-type { border-bottom: 0; }
+.quiz-question { max-width: 72ch; }
+.quiz-scenario {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.75;
+  font-weight: 700;
+  color: var(--ink);
+}
+.quiz-answer {
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.quiz-answer-label {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.quiz-feedback {
+  margin-top: 14px;
+  padding: 16px;
+  background: #f6f9fc;
+  border: 1px solid #d9e5f0;
+  border-radius: 14px;
+}
+.quiz-feedback-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #d9e5f0;
+}
+.quiz-feedback-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.quiz-chosen { margin: 0; color: var(--ink); font-size: 15px; }
+.quiz-feedback-state { color: var(--muted); font-size: 12px; }
+.quiz-feedback .quiz-confidence { margin: 14px 0 10px; }
+.quiz-echo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.quiz-echo b { color: var(--zhihu-ink); white-space: nowrap; }
+.quiz-explanation {
+  margin-top: 12px;
+  border-top: 1px dashed #c7d6e4;
+}
+.quiz-explanation summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  color: var(--zhihu);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.quiz-explanation summary::-webkit-details-marker { display: none; }
+.quiz-explanation summary::before { content: '＋'; font-size: 16px; line-height: 1; }
+.quiz-explanation[open] summary::before { content: '−'; }
+.quiz-explanation-body { padding-top: 10px; }
+.quiz-explanation-body .quiz-link { margin-top: 0; }
 .quiz-to-actions { align-self: flex-start; margin-top: 2px; }
 /* 自测 → 行动地图的衔接卡 */
 .action-link { margin: 2px 0 12px; padding: 10px 12px; background: var(--zhihu-soft); border-radius: 8px; color: var(--zhihu-ink); font-size: 13.5px; line-height: 1.6; }

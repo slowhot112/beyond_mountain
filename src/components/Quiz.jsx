@@ -144,71 +144,59 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
         ];
         return (
           <div key={i} className="quiz-item">
-            <p className="quiz-scenario">{i + 1}. <LongText text={q.scenario} max={140} /></p>
-            {focusRoleOf(q) && (
-              <div className="quiz-focus">
-                这一题问的是：<b>{esc(focusRoleOf(q).name || focusRoleOf(q).form || '')}</b>
-                {focusRoleOf(q).stance
-                  ? <span className="quiz-focus-stance">（{esc(focusRoleOf(q).stance)}）</span>
-                  : null}
-              </div>
-            )}
-            <div className="quiz-opts">
-              {displayOptions.map((opt, j) => {
-                const label = typeof opt === 'string' ? opt : opt.label;
-                const side = typeof opt === 'string' ? null : opt.side;
-                const role = side && side !== CUSTOM_SIDE ? roleMap[side] : null;
-                const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
-                return (
-                  <button
-                    key={j}
-                    type="button"
-                    className={`quiz-opt${isChosen ? ' chosen' : ''}`}
-                    style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
-                    onClick={() => choose(i, opt)}
-                    title={role ? `${role.name || role.stance}` : ''}
-                  >
-                    {esc(label)}
-                    {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
-                  </button>
-                );
-              })}
+            <div className="quiz-question">
+              <p className="quiz-scenario">{i + 1}. <LongText text={q.scenario} max={140} /></p>
+              {focusRoleOf(q) && (
+                <div className="quiz-focus">
+                  这一题问的是：<b>{esc(focusRoleOf(q).name || focusRoleOf(q).form || '')}</b>
+                  {focusRoleOf(q).stance
+                    ? <span className="quiz-focus-stance">（{esc(focusRoleOf(q).stance)}）</span>
+                    : null}
+                </div>
+              )}
             </div>
-            {isEditingCustom && (
-              <div className="quiz-custom-input">
-                <input
-                  type="text"
-                  value={customDraft[i] || ''}
-                  onChange={(e) => setCustomDraft((d) => ({ ...d, [i]: e.target.value }))}
-                  placeholder="写下你的立场，例如：我想先实习再决定"
-                  onKeyDown={(e) => { if (e.key === 'Enter') confirmCustom(i); }}
-                />
-                <button type="button" className="chip" onClick={() => confirmCustom(i)}>确定</button>
+            <div className="quiz-answer">
+              <div className="quiz-answer-label">选择一个最接近你的回答</div>
+              <div className="quiz-opts">
+                {displayOptions.map((opt, j) => {
+                  const label = typeof opt === 'string' ? opt : opt.label;
+                  const side = typeof opt === 'string' ? null : opt.side;
+                  const role = side && side !== CUSTOM_SIDE ? roleMap[side] : null;
+                  const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
+                  return (
+                    <button
+                      key={j}
+                      type="button"
+                      className={`quiz-opt${isChosen ? ' chosen' : ''}`}
+                      style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
+                      onClick={() => choose(i, opt)}
+                      title={role ? `${role.name || role.stance}` : ''}
+                    >
+                      {esc(label)}
+                      {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
+                    </button>
+                  );
+                })}
               </div>
-            )}
+              {isEditingCustom && (
+                <div className="quiz-custom-input">
+                  <input
+                    type="text"
+                    value={customDraft[i] || ''}
+                    onChange={(e) => setCustomDraft((d) => ({ ...d, [i]: e.target.value }))}
+                    placeholder="写下你的立场，例如：我想先实习再决定"
+                    onKeyDown={(e) => { if (e.key === 'Enter') confirmCustom(i); }}
+                  />
+                  <button type="button" className="chip" onClick={() => confirmCustom(i)}>确定</button>
+                </div>
+              )}
+            </div>
             {a && (
               <div className="quiz-feedback">
-                <div className="quiz-chosen">你倾向：<b>{esc(chosenLabel)}</b></div>
-                {/* 观点墙 → 自测的联动说明：选了哪一派，就在验证它的哪个论点 / 暴露它的哪个前提 */}
-                {a.side === CUSTOM_SIDE ? (
-                  <div className="quiz-link">
-                    这是<b>你自己认的路</b>，不在现有几个山头里；我会把它单独留一条，等你去走一趟。
-                  </div>
-                ) : (() => {
-                  const r = a.side ? roleMap[a.side] : null;
-                  if (!r) return null;
-                  return (
-                    <div className="quiz-link">
-                      你选了「{esc(r.name || a.side)}」→ 等于去检验它<b>最硬的那句话</b>：{esc(r.coreArg || r.stance || '')}
-                      {r.boundary
-                        ? <div className="quiz-premise">它成立的前提：{esc(r.boundary)}——前提要是站不住，这话就得打个折。</div>
-                        : null}
-                      {a.confidence === 'low'
-                        ? <div className="quiz-premise">你标了「不确定」→ 这一派还<b>罩在雾里</b>，下次我陪你先去摸清。</div>
-                        : null}
-                    </div>
-                  );
-                })()}
+                <div className="quiz-feedback-head">
+                  <div className="quiz-chosen"><span className="quiz-feedback-label">你的选择</span><b>{esc(chosenLabel)}</b></div>
+                  <span className="quiz-feedback-state">已记录，可随时改选</span>
+                </div>
                 <div className="quiz-confidence">
                   <span className="lbl">你有多确定？</span>
                   {CONF.map((c) => (
@@ -229,8 +217,33 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                         : '一般确定说明你看到了两边道理，继续看解析会帮你把模糊处坐实。'}
                   </div>
                 )}
-                <div><b>回响：</b>{esc(q.feedback)}</div>
-                {q.analysis && <div className="quiz-analysis"><b>拆解：</b>{esc(q.analysis)}</div>}
+                <div className="quiz-echo"><b>回响</b><span>{esc(q.feedback || '这次选择会进入你的判断画像。')}</span></div>
+                <details className="quiz-explanation">
+                  <summary>查看这题拆解与观点前提</summary>
+                  <div className="quiz-explanation-body">
+                    {/* 观点墙 → 自测的联动说明：选了哪一派，就在验证它的哪个论点 / 暴露它的哪个前提 */}
+                    {a.side === CUSTOM_SIDE ? (
+                      <div className="quiz-link">
+                        这是<b>你自己认的路</b>，不在现有几个山头里；我会把它单独留一条，等你去走一趟。
+                      </div>
+                    ) : (() => {
+                      const r = a.side ? roleMap[a.side] : null;
+                      if (!r) return null;
+                      return (
+                        <div className="quiz-link">
+                          你选了「{esc(r.name || a.side)}」→ 等于去检验它<b>最硬的那句话</b>：{esc(r.coreArg || r.stance || '')}
+                          {r.boundary
+                            ? <div className="quiz-premise">它成立的前提：{esc(r.boundary)}。前提要是站不住，这话就得打个折。</div>
+                            : null}
+                          {a.confidence === 'low'
+                            ? <div className="quiz-premise">你标了「不确定」→ 这一派还<b>罩在雾里</b>，下次我陪你先去摸清。</div>
+                            : null}
+                        </div>
+                      );
+                    })()}
+                    {q.analysis && <div className="quiz-analysis"><b>拆解</b><span>{esc(q.analysis)}</span></div>}
+                  </div>
+                </details>
               </div>
             )}
           </div>

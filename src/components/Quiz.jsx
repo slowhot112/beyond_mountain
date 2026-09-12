@@ -192,7 +192,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
               )}
             </div>
             {a && (
-              <div className="quiz-feedback">
+              <div className="quiz-feedback" role="status" aria-live="polite">
                 <div className="quiz-feedback-head">
                   <div className="quiz-chosen"><span className="quiz-feedback-label">你的选择</span><b>{esc(chosenLabel)}</b></div>
                   <span className="quiz-feedback-state">已记录，可随时改选</span>

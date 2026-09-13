@@ -17,7 +17,7 @@ import {
   saveRecord, loadRecords, loadRoad, saveRoad, updateRecordQuiz, updateRecordRoadmap, updateRecordCurrentTask, flattenRoadmap,
   buildAlchemyPayload, collectActionFeedback, updateRecordActionFeedback,
   routeConfidence, routeMissingCount, canGenerateFullRoute, clearLocalData,
-  exportLocalArchive, importLocalArchive, viewpointAngle, normalizeCurrentTask,
+  exportLocalArchive, importLocalArchive, inspectLocalArchive, viewpointAngle, normalizeCurrentTask,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
 import './mountain.css';
@@ -78,6 +78,15 @@ export default function App() {
     if (!file) return;
     try {
       const payload = JSON.parse(await file.text());
+      const inspection = inspectLocalArchive(payload);
+      if (inspection.conflicts.length) {
+        const keepLocal = window.confirm(`发现 ${inspection.conflicts.length} 条与本机相同主题的记录。\n\n确定覆盖本机记录吗？选择“取消”将保留本机记录，只导入不冲突的内容。\n\n本操作不会删除导入档案文件。`);
+        const merged = importLocalArchive(payload, { overwriteConflicts: keepLocal });
+        setRecords(merged);
+        setHistory(loadHistory());
+        setError(keepLocal ? `已导入并更新 ${inspection.conflicts.length} 条冲突记录。` : `已保留本机记录，并导入 ${inspection.added} 条不冲突记录。`);
+        return;
+      }
       const merged = importLocalArchive(payload);
       setRecords(merged);
       setHistory(loadHistory());

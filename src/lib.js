@@ -393,20 +393,42 @@ export function exportLocalArchive() {
   }));
   return { type: 'zhihu-alchemy-archive', v: RECORD_VERSION, exportedAt: Date.now(), records, journal: loadJournalState() };
 }
-export function importLocalArchive(payload) {
+function normalizeArchivePayload(payload) {
   const incoming = payload && typeof payload === 'object' && Array.isArray(payload.records) ? payload.records : null;
   if (!incoming) throw new Error('这不是有效的山径档案');
+  return incoming.map((r) => normalizeRecord({ ...r, card: sanitizeCardForStorage(r.card) })).filter((r) => r.id || r.topic);
+}
+// 导入前先查看会不会碰到本机已有记录。默认不覆盖，避免跨设备迁移时静默丢失现实反馈。
+export function inspectLocalArchive(payload) {
+  const incoming = normalizeArchivePayload(payload);
   const current = loadRecords();
   const byId = new Map(current.map((r) => [r.id, r]));
-  incoming.forEach((r) => {
-    if (!r || typeof r !== 'object') return;
-    const safe = normalizeRecord({ ...r, card: sanitizeCardForStorage(r.card) });
-    const key = safe.id || safe.topic;
-    if (key) byId.set(key, safe);
+  const byTopic = new Map(current.filter((r) => r.topic).map((r) => [r.topic, r]));
+  const conflicts = incoming.filter((r) => {
+    const sameId = r.id && byId.get(r.id);
+    const sameTopic = r.topic && byTopic.get(r.topic);
+    return Boolean((sameId && JSON.stringify(sameId) !== JSON.stringify(r)) || (sameTopic && sameTopic.id !== r.id));
+  });
+  return { incoming, current, conflicts, added: incoming.filter((r) => !conflicts.includes(r)).length };
+}
+export function importLocalArchive(payload, options = {}) {
+  const { incoming, conflicts } = inspectLocalArchive(payload);
+  const allowOverwrite = options.overwriteConflicts === true;
+  const current = loadRecords();
+  const conflictIds = new Set(conflicts.map((r) => r.id));
+  const conflictTopics = new Set(conflicts.map((r) => r.topic).filter(Boolean));
+  const byId = new Map(current.map((r) => [r.id, r]));
+  incoming.forEach((safe) => {
+    const isConflict = conflictIds.has(safe.id) || (safe.topic && conflictTopics.has(safe.topic));
+    if (isConflict && !allowOverwrite) return;
+    if (allowOverwrite && safe.topic) {
+      Array.from(byId.entries()).forEach(([id, rec]) => { if (rec.topic === safe.topic && id !== safe.id) byId.delete(id); });
+    }
+    byId.set(safe.id || safe.topic, safe);
   });
   const merged = pruneRecords(Array.from(byId.values()), RECORD_MAX);
   localStorage.setItem(RECORDS_KEY, JSON.stringify(merged));
-  if (payload.journal && typeof payload.journal === 'object') saveJournalState(payload.journal);
+  if (payload.journal && typeof payload.journal === 'object' && (allowOverwrite || !Object.keys(loadJournalState()).length)) saveJournalState(payload.journal);
   return merged;
 }
 export function loadJournalState() {

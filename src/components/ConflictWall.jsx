@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { esc, brief, normTitle, personaLabel, loadRoad, saveRoad } from '../lib.js';
+import React, { useRef, useState } from 'react';
+import { esc, brief, normTitle, personaLabel, loadRoad, saveRoad, viewpointAngle, replaceInternalRoleIds, normalizeCurrentTask } from '../lib.js';
 
 // 山头调色板：每个观点角色对应一条固定的山色，贯穿观点墙→自测→行动地图
 const HILL = ['#2f6fa8', '#4c7a5a', '#8a6a3a', '#7c5cb0', '#0e7490'];
@@ -110,11 +110,11 @@ function RebutItem({ r, roles }) {
   const text = typeof r === 'string' ? r : (r.text || r.quote || '');
   // 如果角色名带「·」，只显示派系前缀，避免 target 名长得像文章标题、和来源卡片视觉重复
   const targetFull = target?.name || target?.stance || to;
-      const targetShort = target?.stance || target?.coreArg || '另一种观点';
+  const targetShort = target?.stance || target?.coreArg || '另一种观点';
   return (
     <div className="rebut-item">
       <span className="rebut-arrow">→</span>
-      <span>{esc(text)}{target && <span className="rebut-target" title={esc(targetFull)}>（针对 {esc(targetShort)}）</span>}</span>
+      <span>{esc(replaceInternalRoleIds(text, roles))}{target && <span className="rebut-target" title={esc(targetFull)}>（针对“{esc(replaceInternalRoleIds(targetShort, roles))}”）</span>}</span>
     </div>
   );
 }
@@ -154,13 +154,17 @@ function PreviewLine({ s, i }) {
 }
 
 export default function ConflictWall({ conflict, persona, onNext, onTaskChange, demo = false, sourceStats, roadData = null }) {
+  const savedTask = normalizeCurrentTask(roadData && loadRoad(roadData)?.__current);
   const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
-  const [taskStarted, setTaskStarted] = useState(() => Boolean(roadData && loadRoad(roadData)?.__current?.started));
-  const [taskSteps, setTaskSteps] = useState(() => (roadData && loadRoad(roadData)?.__current?.steps) || {});
-  const [copyState, setCopyState] = useState('复制任务');
+  const [taskStarted, setTaskStarted] = useState(() => Boolean(savedTask?.started));
+  const [taskRoleId, setTaskRoleId] = useState(() => savedTask?.roleId || conflict?.roles?.[0]?.id || '');
+  const taskSectionRef = useRef(null);
   if (!conflict) return null;
 
   const firstRole = conflict.roles?.[0];
+  const selectedRoleIndex = Math.max(0, (conflict.roles || []).findIndex((role) => role.id === taskRoleId));
+  const selectedRole = conflict.roles?.[selectedRoleIndex] || firstRole;
+  const selectedAngle = viewpointAngle(selectedRole, selectedRoleIndex);
   const fallbackTask = {
     verify: `先验证“${(firstRole?.stance || conflict.topic || '这条观点').slice(0, 54)}”是否真的适合你的处境。`,
     input: persona?.confusion ? '你的当前困惑，加上 1 个真实岗位或具体机会。' : '1 个真实岗位或具体机会，以及你现在的判断。',
@@ -184,36 +188,29 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
           ? `下面整理了知乎原始来源中的 ${conflict.roles.length} 个山头。`
         : `本次未找到合适的知乎来源，下面整理了可打开核对的全网资料，共 ${conflict.roles.length} 个山头。`;
   const taskIsEvidenceOnly = !demo && !hasVerifiableSources;
-  const taskVerify = taskIsEvidenceOnly
+  const generatedVerify = taskIsEvidenceOnly
     ? `当前没有可核验原文，先取到 1 条能打开的原始资料，再判断“${(task.verify || fallbackTask.verify).slice(0, 48)}”是否成立。`
     : (task.verify || task.goal || fallbackTask.verify);
+  const useSavedQuestion = savedTask?.started && savedTask?.roleId === taskRoleId && savedTask?.verify;
+  const taskVerify = useSavedQuestion ? savedTask.verify : (selectedRole
+    ? `“${replaceInternalRoleIds(selectedRole.stance || selectedRole.coreArg || generatedVerify, conflict.roles)}”是否适合你的处境。`
+    : generatedVerify);
   const taskRows = [
-    { label: '准备', text: task.input || task.inputs || fallbackTask.input },
-    { label: '去做', text: task.action || task.do || task.steps || fallbackTask.action },
-    { label: '带回结果', text: task.done || task.output || task.acceptance || fallbackTask.done },
+    { label: '取三个样本', text: '保存 3 个与你目标接近的真实岗位或机会，其中至少 1 个与这条判断相反。' },
+    { label: '只记可核对事实', text: '记录招聘要求、实际工作、所在城市和薪酬福利，不把观点本身当成事实。' },
+    { label: '回到行动路线', text: `带回链接和记录，再判断“${selectedAngle}”是较符合、不符合，还是仍不能确定。` },
   ];
   function persistCurrentTask(patch) {
     if (!roadData) return;
-    const previous = loadRoad(roadData)?.__current || {};
-    const next = { ...previous, verify: taskVerify, rows: taskRows, ...patch };
+    const previous = normalizeCurrentTask(loadRoad(roadData)?.__current) || {};
+    const next = { ...previous, flowVersion: 2, verify: taskVerify, roleId: taskRoleId, angle: selectedAngle, rows: taskRows, ...patch };
     saveRoad(roadData, '__current', next);
     onTaskChange?.(next);
   }
-  function toggleTaskStep(index) {
-    const next = { ...taskSteps, [index]: !taskSteps[index] };
-    setTaskSteps(next);
-    persistCurrentTask({ steps: next });
-  }
-  async function copyTask() {
-    const text = `验证目标：${taskVerify}\n${taskRows.map((row, i) => `${i + 1}. ${row.label}：${row.text}`).join('\n')}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyState('已复制');
-      window.setTimeout(() => setCopyState('复制任务'), 1600);
-    } catch {
-      setCopyState('复制失败');
-      window.setTimeout(() => setCopyState('复制任务'), 1600);
-    }
+  function selectTaskRole(roleId) {
+    if (taskStarted) return;
+    setTaskRoleId(roleId);
+    window.requestAnimationFrame(() => taskSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   }
 
   function toggle(i) {
@@ -232,7 +229,7 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
         return <div className="wall-persona">你的处境：{esc(pl)}（下面每个观点都结合它来呈现，而非泛泛而谈）</div>;
       })()}
 
-      <blockquote className="conflict-summary"><span className="summary-label">这次分歧</span>{esc(conflict.summary)}</blockquote>
+      <blockquote className="conflict-summary"><span className="summary-label">这次分歧</span>{esc(replaceInternalRoleIds(conflict.summary, conflict.roles))}</blockquote>
 
       <div className="roles">
         {conflict.roles.map((s, i) => (
@@ -271,6 +268,11 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
                   <b>对其他山头的质疑：</b>
                   {makeFallbackRebut(s, conflict.roles).map((r, k) => <RebutItem key={k} r={r} roles={conflict.roles} />)}
                 </div>
+                {!taskStarted && (
+                  <button type="button" className="role-verify-link" onClick={() => selectTaskRole(s.id)}>
+                    想核对这条判断？把它带到下一步 <span aria-hidden="true">↓</span>
+                  </button>
+                )}
                 <div className="sources">
                   <span className="muted">{demo ? '示例脚印（点击翻面）：' : '原文脚印（点击翻面）：'}</span>
                   {(() => {
@@ -293,47 +295,51 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
           </article>
         ))}
       </div>
-      <section className={`current-task-card${taskStarted ? ' started' : ''}`} aria-labelledby="current-task-title">
-        <div className="current-task-kicker">02 · 用现实缩小分歧</div>
-        <h3 id="current-task-title">先做一个小验证，再决定要不要走更长的路</h3>
-        <p className="current-task-intro">这不是行动路线，也不会替你投递或联系任何人。它只用一个短时间能完成的小任务，检查刚才看到的观点是否适合你的处境。</p>
-        <div className="current-task-focus">
-          <span>{taskIsEvidenceOnly ? '这次先取证' : '这次只验证一件事'}</span>
-          <p>{esc(taskVerify)}</p>
+      <section ref={taskSectionRef} className={`current-task-card${taskStarted ? ' started' : ''}`} aria-labelledby="current-task-title">
+        <div className="current-task-kicker">接着走 · 选一条值得核对的判断</div>
+        <h3 id="current-task-title">别急着站队，先决定要验证什么</h3>
+        <p className="current-task-intro">你现在只是在选问题，还没有开始做任务。自测会帮你判断它该排多靠前；到了行动路线，再记录样本和现实结果。</p>
+        <div className="current-task-trail" aria-label="这项验证在产品中的流程">
+          <span className="done">看过不同观点</span><i>→</i><strong>现在：选验证问题</strong><i>→</i><span>辨向排序</span><i>→</i><span>现实验证</span>
         </div>
-        <ol className="current-task-steps">
+        <div className="current-task-origin" aria-label="选择要验证的观点角度">
+          {(conflict.roles || []).map((role, index) => (
+            <button key={role.id || index} type="button" className={`current-task-angle${taskRoleId === role.id ? ' active' : ''}`} disabled={taskStarted} onClick={() => setTaskRoleId(role.id)}>
+              <span>{index + 1}</span>{viewpointAngle(role, index)}
+            </button>
+          ))}
+        </div>
+        <div className="current-task-focus">
+          <span>{taskIsEvidenceOnly ? '这次先取证' : `来自「${selectedAngle}」的判断`}</span>
+          <p>{esc(replaceInternalRoleIds(taskVerify, conflict.roles))}</p>
+        </div>
+        <div className="current-task-method-label">进入行动路线后，会这样完成</div>
+        <ol className="current-task-steps is-preview">
           {taskRows.map((row, index) => (
-            <li key={row.label} className={taskSteps[index] ? 'done' : ''}>
-              <label className="current-task-step-check">
-                <input type="checkbox" checked={!!taskSteps[index]} onChange={() => toggleTaskStep(index)} />
-                <span aria-hidden="true">{taskSteps[index] ? '✓' : index + 1}</span>
+            <li key={row.label}>
+              <div className="current-task-step-check" aria-label={`第 ${index + 1} 步：${row.label}`}>
+                <span aria-hidden="true">{index + 1}</span>
                 <div><b>{row.label}</b><p>{esc(row.text)}</p></div>
-              </label>
+              </div>
             </li>
           ))}
         </ol>
         <div className="current-task-actions">
           <button type="button" className="primary" onClick={() => {
-            if (taskStarted) {
-              // 兼容此前只保存 started 的旧记录：继续时补齐任务内容，再交给后续页面。
-              persistCurrentTask({ started: true, steps: taskSteps });
-              onNext?.();
-              return;
-            }
-            setTaskStarted(true);
-            persistCurrentTask({ started: true, startedAt: Date.now(), steps: taskSteps });
+            if (!taskStarted) setTaskStarted(true);
+            persistCurrentTask({ started: true, stage: 'selected', startedAt: savedTask?.startedAt || Date.now(), steps: {} });
+            onNext?.();
           }}>
-            {taskStarted ? '继续辨向，把任务带到下一步 →' : '加入我的待验证任务'}
+            {taskStarted ? '继续辨向 →' : '选定这个问题，进入辨向自测 →'}
           </button>
-          <button type="button" className="chip ghost" onClick={copyTask}>{copyState}</button>
-          <span className="current-task-status" role="status" aria-live="polite">{Object.values(taskSteps).filter(Boolean).length}/{taskRows.length} 步已完成{taskStarted ? ' · 已加入，辨向与行动路线会接着显示' : ''}</span>
+          {taskStarted && <span className="current-task-status" role="status" aria-live="polite">已选定，后续页面会继续显示这个问题</span>}
         </div>
-        {taskStarted && <p className="current-task-next-note">加入不等于完成。等你带回真实结果，它才会影响下一次判断。</p>}
+        <p className="current-task-next-note">只有你在行动路线确认现实结果后，这条记录才会影响下一次判断。</p>
       </section>
       {onNext && !taskStarted && (
         <div className="wall-next">
-          <button type="button" className="chip primary" onClick={onNext}>
-            继续做辨向自测（可选） →
+          <button type="button" className="link-btn" onClick={onNext}>
+            暂不加入任务，只做辨向自测 →
           </button>
         </div>
       )}

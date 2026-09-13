@@ -291,6 +291,63 @@ export function saveRoad(d, taskKey, patch) {
   try { localStorage.setItem(roadKey(d), JSON.stringify(o)); } catch {}
 }
 export function roadTaskKey(phaseIdx, taskIdx) { return 'p' + phaseIdx + 't' + taskIdx; }
+
+// 旧版允许在观点墙直接勾完三步。那些勾选只是界面操作，不是现实结果。
+// 读取时把旧记录降级为草稿，避免在自测与行动路线误报“3/3 已完成”。
+export function normalizeCurrentTask(task) {
+  if (!task || typeof task !== 'object') return null;
+  const isCurrentFlow = Number(task.flowVersion || 0) >= 2;
+  if (!isCurrentFlow && !task.verdict) {
+    return { ...task, started: false, stage: 'draft', steps: {} };
+  }
+  return {
+    ...task,
+    stage: task.verdict ? 'reviewed' : (task.stage || 'selected'),
+    steps: task.steps && typeof task.steps === 'object' ? task.steps : {},
+  };
+}
+
+// r1/r2/r3 只用于内部关联。界面统一把观点翻译为用户能理解的“观察角度”。
+export function viewpointAngle(role, index = 0) {
+  const primary = String([role?.stance, role?.coreArg].filter(Boolean).join(' '));
+  const text = String([primary, role?.boundary, role?.bestFor].filter(Boolean).join(' '));
+  // 先读主张本身，避免 boundary 里偶然出现“城市”等词就把整个观点分错类。
+  if (/创业|小公司|小厂|独角兽|融资|[A-D]轮|早期公司/i.test(primary)) return '看公司阶段';
+  if (/岗位本身|公司标签|业务线|工作内容|岗位职责/.test(primary)) return '看岗位本身';
+  if (/退出|锁死|单向门|转岗|回.{0,4}赛道|沉没|路径成本/.test(primary)) return '看路径成本';
+  if (/增量|存量|下行|周期|涨薪|高薪|红利|裁员|风口/.test(primary)) return '看行业变化';
+  if (/城市|地域|小城|一线|二线|三线|本地|异地/.test(primary)) return '看地域机会';
+  if (/福利|总包|薪资|收入|回报/.test(primary)) return '看实际回报';
+  if (/能力|技能|成长|积累|经验|实践|作品/.test(primary)) return '看能力成长';
+  if (/学历|学校|双非|硕士|本科|院校/.test(primary)) return '看学历门槛';
+  if (/岗位|招聘|筛选|JD|门槛|机会/.test(primary)) return '看岗位门槛';
+  if (/城市|地域|小城|一线|二线|三线|本地|异地/.test(text)) return '看地域机会';
+  if (/退出|锁死|单向门|转岗|路径|成本|沉没/.test(text)) return '看路径成本';
+  if (/行业|周期|增量|存量|红利|下行|涨薪|高薪|风口/.test(text)) return '看行业变化';
+  return ['看现实门槛', '看长期成长', '看机会差异', '看投入成本'][index % 4];
+}
+
+export function replaceInternalRoleIds(text, roles = []) {
+  let out = String(text || '');
+  (roles || []).forEach((role, index) => {
+    if (!role?.id) return;
+    const angle = viewpointAngle(role, index);
+    const id = String(role.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`${id}(?:\\s*(?:说|认为|观点|的观点|的质疑))?`, 'gi'), angle);
+  });
+  return out
+    .replace(/该答主(?:认为|分享)[：:]?\s*/g, '')
+    .replace(/\br\d+\b/gi, '另一种观察')
+    .replace(/情境题\s*\d+\s*[：:]?\s*/g, '')
+    .replace(/三派互驳[。.]?/g, '三种判断相互质疑。')
+    .replace(/三派/g, '三种观点')
+    .replace(/不同派别/g, '不同观点')
+    .replace(/哪一派/g, '哪种判断')
+    .replace(/这一派/g, '这条观点')
+    .replace(/该派/g, '这条观点')
+    .replace(/该优先采信谁/g, '哪种判断值得优先验证')
+    .trim();
+}
 // roadmap 任务平铺（客户端版；旧 UI / 摘要复用）
 export function flattenRoadmap(roadmap) {
   if (!roadmap || !Array.isArray(roadmap.phases)) return [];
@@ -307,6 +364,7 @@ export function flattenRoadmap(roadmap) {
 // 存的是一整次分析的完整快照（处境卡 + 结果 + 自测），刷新或关掉页面都不丢。
 // v 是存档格式版本号：以后改结构时，老存档照样能读出来，不会打不开。
 const RECORDS_KEY = 'alchemy:records';
+const JOURNAL_KEY = 'alchemy:journal';
 export const RECORD_VERSION = 1;
 export const RECORD_MAX = 30;
 
@@ -333,7 +391,7 @@ export function exportLocalArchive() {
     ...r,
     card: sanitizeCardForStorage(r.card),
   }));
-  return { type: 'zhihu-alchemy-archive', v: RECORD_VERSION, exportedAt: Date.now(), records };
+  return { type: 'zhihu-alchemy-archive', v: RECORD_VERSION, exportedAt: Date.now(), records, journal: loadJournalState() };
 }
 export function importLocalArchive(payload) {
   const incoming = payload && typeof payload === 'object' && Array.isArray(payload.records) ? payload.records : null;
@@ -348,7 +406,14 @@ export function importLocalArchive(payload) {
   });
   const merged = pruneRecords(Array.from(byId.values()), RECORD_MAX);
   localStorage.setItem(RECORDS_KEY, JSON.stringify(merged));
+  if (payload.journal && typeof payload.journal === 'object') saveJournalState(payload.journal);
   return merged;
+}
+export function loadJournalState() {
+  try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '{}'); } catch { return {}; }
+}
+export function saveJournalState(state) {
+  try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(state && typeof state === 'object' ? state : {})); } catch {}
 }
 export function sanitizeCardForStorage(card) {
   if (!card || typeof card !== 'object') return card || null;
@@ -362,7 +427,7 @@ export function clearLocalData() {
     const keys = [];
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
-      if (key === HISTORY_KEY || key === RECORDS_KEY || key?.startsWith('alchemy:actions:') || key?.startsWith('alchemy:road:')) keys.push(key);
+      if (key === HISTORY_KEY || key === RECORDS_KEY || key === JOURNAL_KEY || key?.startsWith('alchemy:actions:') || key?.startsWith('alchemy:road:')) keys.push(key);
     }
     keys.forEach((key) => localStorage.removeItem(key));
     return true;
@@ -477,12 +542,15 @@ export function summarizeActionFeedback(road) {
     if (!v || typeof v !== 'object') return;
     if (String(k).startsWith('g')) return; // 毕业检查表（g0/g1…）不计入任务反馈
     if (k === '__current' && !v.verdict) return; // 前置小验证未回填现实判断前，只是待办，不是结论
+    // 新流程里，“带回事实”与“写入长期判断”是两件事。等待用户确认时不进入下一轮。
+    if (v.stage === 'pending_confirmation' && !v.memoryDecision) return;
+    if (v.memoryDecision?.choice === 'defer' || v.memoryDecision?.choice === 'release') return;
     if (v.done) out.done += 1;
     const hyp = v.hypothesis || '';
     if (v.verdict === 'up') out.up.push(hyp);
     else if (v.verdict === 'down') out.down.push(hyp);
     else if (v.verdict === 'unclear') out.unclear.push(hyp);
-    if (v.note) out.notes.push({ hypothesis: hyp, note: v.note, verdict: v.verdict || '' });
+    if (v.note) out.notes.push({ hypothesis: hyp, note: v.note, verdict: v.verdict || '', evidenceUrl: v.evidenceUrl || '', memoryDecision: v.memoryDecision || null });
   });
   return out;
 }

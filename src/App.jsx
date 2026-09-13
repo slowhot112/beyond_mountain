@@ -5,6 +5,8 @@ import PersonaCard from './components/PersonaCard.jsx';
 import ConflictWall from './components/ConflictWall.jsx';
 import Quiz from './components/Quiz.jsx';
 import ActionMap from './components/ActionMap.jsx';
+import ActionJournal from './components/ActionJournal.jsx';
+import MemoryCarryover from './components/MemoryCarryover.jsx';
 import ResultHub from './components/ResultHub.jsx';
 import ResumeConfirm from './components/ResumeConfirm.jsx';
 
@@ -15,10 +17,11 @@ import {
   saveRecord, loadRecords, loadRoad, saveRoad, updateRecordQuiz, updateRecordRoadmap, updateRecordCurrentTask, flattenRoadmap,
   buildAlchemyPayload, collectActionFeedback, updateRecordActionFeedback,
   routeConfidence, routeMissingCount, canGenerateFullRoute, clearLocalData,
-  exportLocalArchive, importLocalArchive,
+  exportLocalArchive, importLocalArchive, viewpointAngle, normalizeCurrentTask,
 } from './lib.js';
 import { fileToText, loadSample, extractResume } from './resume.js';
 import './mountain.css';
+import { findCarryoverCandidates } from './journal.js';
 
 const MODE = 'live';
 
@@ -43,6 +46,8 @@ export default function App() {
   const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
   const [metaOpen, setMetaOpen] = useState(false); // 结果页顶部来源提示：默认收起
   const [guidePrompt, setGuidePrompt] = useState(null);
+  const [carryoverChoice, setCarryoverChoice] = useState(null);
+  const carryoverCandidates = useMemo(() => findCarryoverCandidates(records, card || {}), [records, card]);
 
   useEffect(() => { setHistory(loadHistory()); setRecords(loadRecords()); }, []);
 
@@ -55,7 +60,7 @@ export default function App() {
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   }
 
-  function buildCard(c) { setCard(c); go('card'); }
+  function buildCard(c) { setCard(c); setCarryoverChoice(null); go('card'); }
 
   function handleExportArchive() {
     try {
@@ -83,6 +88,11 @@ export default function App() {
   }
 
   async function runAlchery() {
+    if (carryoverCandidates.length && carryoverChoice === null) {
+      setError('行动簿里有与你当前处境相近的旧判断。请先确认是否带入，再生成本次结果。');
+      requestAnimationFrame(() => document.querySelector('.memory-carryover')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      return;
+    }
     const myId = ++reqId.current;
     setError(null);
     setQuizResult(null);
@@ -114,7 +124,9 @@ export default function App() {
           topic: topicStr,
           persona,
           queries: buildQueries(card),
-          records,
+          records: carryoverChoice?.length
+            ? records.filter((record) => carryoverCandidates.some((item) => carryoverChoice.includes(item.id) && item.record.id === record.id))
+            : [],
         })),
       });
       if (myId !== reqId.current) return;
@@ -275,20 +287,20 @@ export default function App() {
   }, [records, quizResult]);
 
   // 打开某条历史存档：把当时的处境卡与结果一起还原，像回到那天
-  function openRecord(rec) {
+  function openRecord(rec, destination = 'result0') {
     if (!rec || !rec.data) return;
     currentRecordId.current = rec.id;
     setCard(rec.card || null);
     setData(rec.data);
     // 导入到新设备的山径也能继续同一条待验证任务，不让联动只存在于原浏览器。
-    if (rec.currentTask) saveRoad(rec.data, '__current', rec.currentTask);
+    if (rec.currentTask) saveRoad(rec.data, '__current', normalizeCurrentTask(rec.currentTask));
     setTopic(rec.topic || rec.data.topic || '');
     setQuizResult(rec.quiz || null);
     // 若当年生成过完整路线，直接还原，不重复消耗直答
     if (rec.data.roadmap) setPrefetchedActions({ roadmap: rec.data.roadmap, actions: flattenRoadmap(rec.data.roadmap) });
     else setPrefetchedActions(null);
     setVisitedResults(['result0', ...(rec.quiz ? ['result2'] : []), ...(rec.data.roadmap ? ['result3'] : [])]);
-    go('result0');
+    go(destination === 'result3' && rec.quiz && canGenerateFullRoute(rec.quiz) ? 'result3' : destination);
   }
 
   function handleCurrentTaskChange(currentTask) {
@@ -321,8 +333,8 @@ export default function App() {
     <div className="app">
       {step !== 'landing' && (
         <header className="topbar">
-          <div className="brand">山外山</div>
-          <div className="brand-sub">不替你选路，只把众声摆成你能看清的山势</div>
+          <div><div className="brand">山外山</div><div className="brand-sub">不替你选路，只把众声摆成你能看清的山势</div></div>
+          {step !== 'journal' && records.length > 0 && <button type="button" className="topbar-journal" onClick={() => go('journal')}>行动簿</button>}
         </header>
       )}
 
@@ -331,7 +343,7 @@ export default function App() {
 
         {step === 'landing' && (
           <Landing
-            onStart={() => go('onboarding')}
+            onStart={() => { setCarryoverChoice(null); go('onboarding'); }}
             records={records}
             onOpen={openRecord}
             onClear={() => {
@@ -342,7 +354,17 @@ export default function App() {
             }}
             onExport={handleExportArchive}
             onImport={handleImportArchive}
+            onOpenJournal={() => go('journal')}
             />
+        )}
+
+        {step === 'journal' && (
+          <ActionJournal
+            records={records}
+            onBack={() => go('landing')}
+            onOpenRecord={(record) => openRecord(record, 'result3')}
+            onRecordsChange={(next) => setRecords(next || loadRecords())}
+          />
         )}
 
         <SpiritGuide records={records} currentData={data} step={step} topic={topic} prompt={guidePrompt} />
@@ -368,24 +390,27 @@ export default function App() {
         )}
 
         {step === 'card' && card && (
-          <PersonaCard
-            card={card}
-            onEdit={(c) => setCard(c)}
-            onConfirm={runAlchery}
-            onUploadResume={() => {
-              const input = document.createElement('input');
-              input.type = 'file';
-              input.accept = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.bmp';
-              input.onchange = () => { if (input.files[0]) handleResume(input.files[0]); };
-              input.click();
-            }}
-            onPasteResume={handlePastedResume}
-            onLoadSample={handleSample}
-            resumeLoading={resumeLoading}
-            ocrProgress={ocrProgress}
-            alchemyLoading={alchemyLoading}
-            alchemyStep={alchemyStep}
-          />
+          <>
+            <MemoryCarryover candidates={carryoverCandidates} decision={carryoverChoice} onDecision={(value) => { setCarryoverChoice(value); if (value !== null) setError(null); }} />
+            <PersonaCard
+              card={card}
+              onEdit={(c) => setCard(c)}
+              onConfirm={runAlchery}
+              onUploadResume={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.bmp';
+                input.onchange = () => { if (input.files[0]) handleResume(input.files[0]); };
+                input.click();
+              }}
+              onPasteResume={handlePastedResume}
+              onLoadSample={handleSample}
+              resumeLoading={resumeLoading}
+              ocrProgress={ocrProgress}
+              alchemyLoading={alchemyLoading}
+              alchemyStep={alchemyStep}
+            />
+          </>
         )}
 
         {resumeErr && <div className="error">{resumeErr}</div>}
@@ -407,6 +432,7 @@ export default function App() {
               onEditCard={() => go('card')}
               quizDone={quizReady}
               visited={visitedResults}
+              onOpenJournal={() => go('journal')}
             />
             {card && (
               <div className="persona-strip" aria-label="当前处境">
@@ -478,7 +504,7 @@ export default function App() {
                     index,
                     scenario,
                   })}
-                  currentTask={loadRoad(data)?.__current || null}
+                  currentTask={normalizeCurrentTask(loadRoad(data)?.__current) || null}
                 />
               </>
             )}
@@ -495,7 +521,7 @@ export default function App() {
                   </div>
                 )}
                 {quizReady && currentDominantId && (
-                  <div className="dominant muted">这一轮你偏向：<b>{esc0(domRole?.name || currentDominantId)}</b>（本轮 {currentDominantCount}/{quizResult.total} 题）</div>
+                  <div className="dominant muted">这一轮你更多从「<b>{esc0(viewpointAngle(domRole, (data.conflict?.roles || []).findIndex((r) => r.id === currentDominantId)))}</b>」作答（本轮 {currentDominantCount}/{quizResult.total} 题）</div>
                 )}
                 <ActionMap
                   data={data}
@@ -507,6 +533,7 @@ export default function App() {
                   onRouteReady={handleRouteReady}
                   onFeedbackChange={handleActionFeedback}
                   onCurrentTaskChange={handleCurrentTaskChange}
+                  onOpenJournal={() => go('journal')}
                 />
               </>
             )}

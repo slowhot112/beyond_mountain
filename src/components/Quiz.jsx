@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { esc, quizFocusRole, canGenerateFullRoute, routeMissingCount } from '../lib.js';
+import { esc, quizFocusRole, canGenerateFullRoute, routeMissingCount, viewpointAngle, replaceInternalRoleIds, normalizeCurrentTask } from '../lib.js';
 
 const CONF = [
   { key: 'high', label: '很确定' },
@@ -43,8 +43,8 @@ function sideDisplayName(roleMap, side) {
 
 function presentOptionLabel(q, opt, role) {
   const raw = typeof opt === 'string' ? opt : opt?.label;
-  const normalized = String(raw || '').replace(/^该答主(认为|分享)：?\s*/, '').trim();
-  if (!role || !/(答主|知乎|汤家凤|车辆工程考研|人生修炼手册|作者|来源)/.test(String(raw || ''))) return normalized;
+  const normalized = String(raw || '').replace(/^该答主(认为|分享)：?\s*/, '').replace(/^r\d+\s*的质疑[：:]?\s*/i, '').trim();
+  if (!role || !/(答主|知乎|汤家凤|车辆工程考研|人生修炼手册|作者|来源|\br\d+\b)/i.test(String(raw || ''))) return normalized.replace(/^r\d+\s*的质疑[：:]?\s*/i, '');
   const s = String(q?.scenario || '');
   if (/前提下才成立/.test(s)) return '它只在特定城市、资历和机会条件下成立';
   if (/反对意见/.test(s)) return `另一种观点提醒：${String(role.stance || role.coreArg || '').replace(/^该答主(认为|分享)：?\s*/, '')}`;
@@ -70,6 +70,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
   // 与行动地图的联动门槛：答满 4 题才够格生成完整路线，不足只能看初版
   const missing = routeMissingCount({ answeredCount, total });
   const canGen = canGenerateFullRoute({ answeredCount, total });
+  const activeTask = normalizeCurrentTask(currentTask);
 
   const roleMap = useMemo(() => {
     const map = {};
@@ -145,17 +146,17 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
     <section className="card quiz">
       <h2>④ 辨向自测（逼自己站一站）</h2>
       <p className="muted">
-        先选你倾向哪一派，再标记你有多确定——如果选项里没有你真正想说的，点「其他」自己写。
+        逐题选择更接近你的判断，再标记你有多确定。如果都不合适，点「其他」写下自己的答案。
         {answeredCount > 0 && <span className="quiz-progress">已答 {answeredCount}/{total}</span>}
         {answeredCount > 0 && missing > 0 && (
           <span className="quiz-progress dim"> · 再答 {missing} 题，雾就散透了，我就能给你指路</span>
         )}
       </p>
-      {currentTask?.started && (
+      {activeTask?.started && (
         <div className="current-task-bridge quiz-task-bridge">
-          <span className="current-task-bridge-kicker">从观点墙带来的待验证任务</span>
-          <b>{esc(currentTask.verify || '你刚加入的小验证')}</b>
-          <span>当前完成 {Object.values(currentTask.steps || {}).filter(Boolean).length}/{(currentTask.rows || []).length || 3} 步。自测会帮你判断，这项验证在后续路线里该放多重。</span>
+          <span className="current-task-bridge-kicker">这轮自测要帮你排清的验证问题</span>
+          <b>{activeTask.angle ? `${esc(activeTask.angle)}：` : ''}{esc(replaceInternalRoleIds(activeTask.verify || '你刚选定的验证问题', roles))}</b>
+          <span>现在不记录执行进度。答完后，这个问题会排进行动路线；你带回现实样本时再确认结果。</span>
         </div>
       )}
       {legacySummary && answeredCount === 0 && (
@@ -174,7 +175,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
         return (
           <div key={i} className="quiz-item">
             <div className="quiz-question">
-              <p className="quiz-scenario">{i + 1}. <LongText text={q.scenario} max={140} /></p>
+              <p className="quiz-scenario">{i + 1}. <LongText text={replaceInternalRoleIds(q.scenario, roles)} max={140} /></p>
               {focusRoleOf(q) && (
                 <div className="quiz-focus">
                   这题对应的观点前提：
@@ -203,7 +204,8 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                         style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
                         onClick={() => choose(i, opt)}
                       >
-                        {esc(label)}
+                        <span className="quiz-opt-angle">{esc(viewpointAngle(role, (roles || []).findIndex((item) => item.id === side)))}</span>
+                        <span>{esc(replaceInternalRoleIds(label, roles))}</span>
                       </button>
                       {role?.sourceItems?.[0]?.url && (
                         <a className="quiz-source-link" href={role.sourceItems[0].url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
@@ -260,7 +262,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                     {a.confidence === 'low'
                       ? '不确定也没关系。刘看山会帮你把这题拆小，你也可以先保留这个答案。'
                       : a.confidence === 'high'
-                        ? '很确定？回头看解析时，专门找「和你相反」的那派论据，检验自己是不是只信了一边。'
+                        ? '很确定？回头看解析时，专门找与你相反的论据，检验自己是不是只看了一边。'
                         : '一般确定说明你看到了两边道理，继续看解析会帮你把模糊处坐实。'}
                   </div>
                 )}
@@ -278,12 +280,12 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                       if (!r) return null;
                       return (
                         <div className="quiz-link">
-                          你选了「{esc(r.name || a.side)}」→ 等于去检验它<b>最硬的那句话</b>：{esc(r.coreArg || r.stance || '')}
+                          你选择从「{esc(viewpointAngle(r, (roles || []).findIndex((item) => item.id === r.id)))}」继续看，接下来要核对的是：<b>{esc(replaceInternalRoleIds(r.coreArg || r.stance || '', roles))}</b>
                           {r.boundary
                             ? <div className="quiz-premise">它成立的前提：{esc(r.boundary)}。前提要是站不住，这话就得打个折。</div>
                             : null}
                           {a.confidence === 'low'
-                            ? <div className="quiz-premise">你标了「不确定」→ 这一派还<b>罩在雾里</b>，下次我陪你先去摸清。</div>
+                            ? <div className="quiz-premise">你标了「不确定」：这条判断还<b>罩在雾里</b>，后续路线会优先帮你摸清。</div>
                             : null}
                         </div>
                       );
@@ -312,7 +314,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
               可以重看对应观点的论据与成立前提，也可以让刘看山帮你把问题拆小。
             </div>
           ) : (
-            <div>你对所有题都给出了确定程度。真正的高手不只站对边，更知道自己哪里可能错——回头把每题「相反立场」的论据也读一遍。</div>
+            <div>你对所有题都给出了确定程度。先别急着把它当结论，回头也读一遍每题中与你相反的论据。</div>
           )}
           {onGotoActions && canGen && (
             <button type="button" className="chip primary quiz-to-actions" onClick={onGotoActions}>

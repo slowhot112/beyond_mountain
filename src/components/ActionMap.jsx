@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   esc, loadActions, saveActions, loadRoad, saveRoad, roadTaskKey, api, personaPayload,
-  canGenerateFullRoute, routeConfidence, routeMissingCount, buildActionsPayload, summarizeActionFeedback,
+  canGenerateFullRoute, routeConfidence, routeMissingCount, buildActionsPayload, summarizeActionFeedback, viewpointAngle, replaceInternalRoleIds, normalizeCurrentTask,
 } from '../lib.js';
 
 function fmtDate(iso) {
@@ -23,12 +23,13 @@ function splitSteps(text) {
 }
 
 // 一张验证任务卡：勾选完成 + 现实回填（属实/打脸/不确定）+ 证据入口
-function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, roleName }) {
+function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, onEvidenceUrl, roleName }) {
   const [showSig, setShowSig] = useState(false);
   const [expanded, setExpanded] = useState(false); // 默认收起：怎么走 / 依据，先露时间 + 要试的判断
   const isDown = st?.verdict === 'down';
   const hasSteps = !!(task.where || task.steps || task.done);
   const hasEv = (task.ev && task.ev.length > 0) || task.evVerify;
+  const hasFactNote = String(st?.note || '').trim().length >= 4;
   return (
     <li className={['rmp-task', st?.done ? 'done' : '', isDown ? 'down' : '', st?.verdict === 'unclear' ? 'unclear' : ''].filter(Boolean).join(' ')}>
       <div className="rmp-task-head">
@@ -93,22 +94,29 @@ function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, roleName }) {
             key={o.v}
             type="button"
             className={['chip', st?.verdict === o.v ? 'active ' + o.cls : ''].filter(Boolean).join(' ')}
+            disabled={!hasFactNote}
+            title={hasFactNote ? '' : '先写下一条现实记录'}
             onClick={() => onVerdict(o.v)}
           >
             {o.label}
           </button>
         ))}
-        {st?.verdict === 'up' && <span className="rmp-vnote">✓ 你走过的结论：这条路走得通</span>}
-        {st?.verdict === 'down' && <span className="rmp-vnote">✗ 你走过的结论：前面塌方了 —— 先想清楚是换条路，还是换个走法</span>}
-        {st?.verdict === 'unclear' && <span className="rmp-vnote">雾还没散，别急着下结论</span>}
+        {st?.verdict && <span className="rmp-vnote">现实结果已记录，正在行动簿等待你确认变化；确认前不会影响下一次判断。</span>}
         {/* 现实反馈（用户自己写）：下次炼金/排路线会读它，用来减少重复验证或建议换路 */}
         <div className="rmp-note" onClick={(e) => e.stopPropagation()}>
           <input
             aria-label="为这段行动留下现实反馈"
             type="text"
             value={st?.note || ''}
-            placeholder="回来留个记号（可选）：比如「投了 8 份，一个回复都没有」"
+            placeholder="写下实际发生的事：例如「投了 8 份，一个回复都没有」"
             onChange={(e) => onNote && onNote(e.target.value)}
+          />
+          <input
+            aria-label="为这段行动添加证据链接"
+            type="url"
+            value={st?.evidenceUrl || ''}
+            placeholder="证据链接（可选）：岗位、文章或公开作品地址"
+            onChange={(e) => onEvidenceUrl && onEvidenceUrl(e.target.value)}
           />
         </div>
       </div>
@@ -116,7 +124,7 @@ function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, roleName }) {
   );
 }
 
-export default function ActionMap({ data, quizResult, persona, prefetchedActions, prevRecord, historyFeedback, onRouteReady, onFeedbackChange, onCurrentTaskChange }) {
+export default function ActionMap({ data, quizResult, persona, prefetchedActions, prevRecord, historyFeedback, onRouteReady, onFeedbackChange, onCurrentTaskChange, onOpenJournal }) {
   const [done, setDone] = useState({}); // 旧平铺卡片勾选（回退 UI）
   const [road, setRoad] = useState({}); // 完整路线任务：taskKey -> {done, verdict}
   const [manualRoadmap, setManualRoadmap] = useState(null); // 手动"重做"来的路线
@@ -193,58 +201,65 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     saveRoad(data, tkey, base);
     const next = { ...road, [tkey]: base };
     setRoad(next);
-    if (onFeedbackChange) onFeedbackChange(summarizeActionFeedback(next));
+    if (onFeedbackChange && base.memoryDecision) onFeedbackChange(summarizeActionFeedback(next));
   }
 
   function commitCurrentTask(patch) {
-    const previous = road.__current || {};
-    const nextTask = { ...previous, ...patch };
+    const previous = normalizeCurrentTask(road.__current) || {};
+    const nextTask = { ...previous, flowVersion: 2, ...patch };
     saveRoad(data, '__current', nextTask);
     const next = { ...road, __current: nextTask };
     setRoad(next);
     onCurrentTaskChange?.(nextTask);
     // 加入、勾步骤或写准备笔记都不等于验证结论；只有明确回填现实结果才反哺下一轮。
-    if (onFeedbackChange && nextTask.verdict) onFeedbackChange(summarizeActionFeedback(next));
+    if (onFeedbackChange && nextTask.memoryDecision) onFeedbackChange(summarizeActionFeedback(next));
   }
 
   function currentTaskBridge() {
-    const currentTask = road.__current;
+    const currentTask = normalizeCurrentTask(road.__current);
     if (!currentTask?.started) return null;
     const rows = Array.isArray(currentTask.rows) ? currentTask.rows : [];
     const steps = currentTask.steps || {};
-    const completed = Object.values(steps).filter(Boolean).length;
     const total = rows.length || 3;
+    const preparationTotal = Math.max(1, total - 1);
+    const completed = Object.entries(steps).filter(([index, done]) => done && Number(index) < preparationTotal).length;
+    const hasFactNote = String(currentTask.note || '').trim().length >= 4;
     return (
       <section className="current-task-bridge action-task-bridge" aria-labelledby="action-current-task-title">
-        <span className="current-task-bridge-kicker">从观点墙带来的待验证任务</span>
-        <h3 id="action-current-task-title">{esc(currentTask.verify || '继续完成你加入的小验证')}</h3>
-        <p>已完成 {completed}/{total} 步。它会留在这里，直到你带回现实结果。</p>
+        <span className="current-task-bridge-kicker">正在验证 · {esc(currentTask.angle || '一个观点前提')}</span>
+        <h3 id="action-current-task-title">{esc(replaceInternalRoleIds(currentTask.verify || '继续完成你加入的小验证', data?.conflict?.roles || []))}</h3>
+        <p>已完成 {completed}/{preparationTotal} 项准备。带回事实记录后，再确认这条判断是否适合你。</p>
         {rows.length > 0 && (
           <div className="current-task-bridge-steps">
             {rows.map((row, index) => (
               <label key={row.label || index} className={steps[index] ? 'done' : ''}>
-                <input type="checkbox" checked={!!steps[index]} onChange={() => commitCurrentTask({ steps: { ...steps, [index]: !steps[index] } })} />
-                <span>{steps[index] ? '✓' : index + 1}</span>
+                {index < preparationTotal && <input type="checkbox" checked={!!steps[index]} onChange={() => commitCurrentTask({ stage: 'doing', steps: { ...steps, [index]: !steps[index] } })} />}
+                <span>{index === total - 1 ? '→' : (steps[index] ? '✓' : index + 1)}</span>
                 <b>{esc(row.label)}</b>
               </label>
             ))}
           </div>
         )}
         <div className="current-task-result">
-          <span>带回的结果：</span>
+          <span>根据现实记录确认结果：</span>
           {[
             { value: 'up', label: '较符合这条观点' },
             { value: 'down', label: '不符合这条观点' },
             { value: 'unclear', label: '还不能判断' },
           ].map((item) => (
-            <button key={item.value} type="button" className={`chip${currentTask.verdict === item.value ? ' active' : ''}`} onClick={() => commitCurrentTask({ verdict: item.value, done: true, completedAt: Date.now(), hypothesis: currentTask.verify || '', steps: { ...steps, [Math.max(0, total - 1)]: true } })}>{item.label}</button>
+            <button key={item.value} type="button" disabled={!hasFactNote} title={hasFactNote ? '' : '先写下一条现实记录'} className={`chip${currentTask.verdict === item.value ? ' active' : ''}`} onClick={() => commitCurrentTask({ stage: 'pending_confirmation', memoryDecision: null, verdict: item.value, done: true, completedAt: Date.now(), hypothesis: currentTask.verify || '', steps: { ...steps, [Math.max(0, total - 1)]: true } })}>{item.label}</button>
           ))}
         </div>
         <label className="current-task-note">
-          <span>留下事实记录（可选）</span>
+          <span>写下一条现实记录（确认结果前必填）</span>
           <input value={currentTask.note || ''} onChange={(e) => commitCurrentTask({ note: e.target.value, hypothesis: currentTask.verify || '' })} placeholder="例如：看了 3 个岗位，其中 2 个明确不限学历" />
         </label>
-        {currentTask.verdict && <div className="current-task-result-note" role="status">已记录现实结果。下一次判断会参考这条事实，而不是只记住你点过按钮。</div>}
+        <label className="current-task-note">
+          <span>证据链接（可选）</span>
+          <input type="url" value={currentTask.evidenceUrl || ''} onChange={(e) => commitCurrentTask({ evidenceUrl: e.target.value })} placeholder="岗位、文章或公开作品地址" />
+        </label>
+        {!hasFactNote && <div className="current-task-result-hint">写下至少一条岗位、沟通或实际尝试的结果后，才能确认判断。</div>}
+        {currentTask.verdict && <div className="current-task-result-note" role="status">已记录现实结果，并送进行动簿等待确认。确认前不会影响下一次判断。</div>}
       </section>
     );
   }
@@ -265,6 +280,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
       // 本轮已填的行动结果 + 历史各轮的行动结果，一起交给后端：
       // 已验证成立的判断不再重复验证，被现实打脸的方向降优先级 / 建议换路。
       const latestRoad = loadRoad(data);
+      if (latestRoad.__current) latestRoad.__current = normalizeCurrentTask(latestRoad.__current);
       const cur = summarizeActionFeedback(latestRoad);
       const hasCur = cur.done > 0 || cur.up.length || cur.down.length || cur.unclear.length || cur.notes.length;
       const feedback = hasCur ? [cur, ...(historyFeedback || [])] : (historyFeedback || []);
@@ -378,7 +394,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
                       task={t}
                       tkey={tkey}
                       st={road[tkey] || {}}
-                      roleName={t.role ? (roleMap[t.role]?.name || t.role) : ''}
+                      roleName={t.role ? viewpointAngle(roleMap[t.role], (data?.conflict?.roles || []).findIndex((r) => r.id === t.role)) : ''}
                       onToggle={() => {
                         const cur = road[tkey] || {};
                         const nd = !cur.done;
@@ -386,8 +402,9 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
                         if (!nd) nxt.verdict = null; // 取消做过 = 清掉回填，避免误判
                         commitRoad(tkey, nxt, t);
                       }}
-                      onVerdict={(v) => commitRoad(tkey, { done: true, verdict: v }, t)}
+                      onVerdict={(v) => commitRoad(tkey, { done: true, stage: 'pending_confirmation', memoryDecision: null, verdict: v, completedAt: Date.now() }, t)}
                       onNote={(note) => commitRoad(tkey, { note }, t)}
+                      onEvidenceUrl={(evidenceUrl) => commitRoad(tkey, { evidenceUrl }, t)}
                     />
                   );
                 })}
@@ -399,7 +416,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
 
         {roadmap.graduation && (
           <div className="rmp-graduation">
-            <h3>🎓 出师清单（走完这条路，最后要交的几样）</h3>
+            <div className="rmp-graduation-head"><div><h3>成果行囊</h3><p>这些不是一次性清单。完成后会留进行动簿，成为以后还能继续更新和复用的成果。</p></div><button type="button" className="chip" onClick={onOpenJournal}>打开行囊</button></div>
             <ul className="rmp-gcheck">
               {(roadmap.graduation.checklist || []).map((c, ci) => {
                 const gkey = 'g' + ci;
@@ -410,8 +427,8 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
                       <input type="checkbox" checked={!!gst.done}
                         onChange={() => {
                           const nd = !gst.done;
-                          saveRoad(data, gkey, { done: nd });
-                          setRoad((prev) => ({ ...prev, [gkey]: { done: nd } }));
+                          saveRoad(data, gkey, { done: nd, updatedAt: Date.now() });
+                          setRoad((prev) => ({ ...prev, [gkey]: { ...(prev[gkey] || {}), done: nd, updatedAt: Date.now() } }));
                         }}
                       />
                       <span>{esc(c.text)}</span>

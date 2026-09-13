@@ -16,6 +16,7 @@ globalThis.localStorage = new LS();
 
 const lib = await import('../src/lib.js');
 const zhihu = await import('../zhihu.js');
+const journal = await import('../src/journal.js');
 
 const results = [];
 function check(name, ok, detail) {
@@ -42,6 +43,30 @@ check('答 4/5 题：达到门槛，可生成完整路线（partial）',
 check('答满 5/5 题：full，可生成完整路线',
   lib.routeConfidence({ answeredCount: 5, total: 5 }) === 'full'
   && lib.canGenerateFullRoute({ answeredCount: 5, total: 5 }) === true);
+
+const angleRoles = [
+  { id: 'r1', stance: '下行期大厂高薪承诺可能无法持续' },
+  { id: 'r2', stance: '国企的单向门属性会抬高退出成本' },
+  { id: 'r3', stance: '小城市的 AI 岗位机会更少' },
+];
+check('内部角色 ID 会转换为符合产品调性的观察角度',
+  lib.viewpointAngle(angleRoles[0], 0) === '看行业变化'
+  && lib.viewpointAngle(angleRoles[1], 1) === '看路径成本'
+  && lib.viewpointAngle(angleRoles[2], 2) === '看地域机会');
+check('旧题目里的 r1/r2/r3 不再暴露给用户',
+  !/\br\d+\b/i.test(lib.replaceInternalRoleIds('r1的质疑：风险溢价会反噬；r2说退出成本更高；r3观点是城市机会少', angleRoles)));
+check('旧版观点墙勾选不会被误报成现实任务已完成',
+  lib.normalizeCurrentTask({ started: true, steps: { 0: true, 1: true, 2: true } }).started === false
+  && Object.keys(lib.normalizeCurrentTask({ started: true, steps: { 0: true } }).steps).length === 0);
+check('新版验证任务会保留选择状态与现实进度',
+  lib.normalizeCurrentTask({ flowVersion: 2, started: true, steps: { 0: true } }).started === true
+  && lib.normalizeCurrentTask({ flowVersion: 2, started: true, steps: { 0: true } }).steps[0] === true);
+check('行动簿只把有事实记录的结果列为等待确认',
+  journal.judgmentStatus({ verdict: 'down', note: '' }) === 'verifying'
+  && journal.judgmentStatus({ verdict: 'down', note: '查看了 3 个真实岗位' }) === 'waiting');
+check('用户确认后判断卡进入对应的长期状态',
+  journal.judgmentStatus({ memoryDecision: { choice: 'revise' } }) === 'revised'
+  && journal.judgmentStatus({ memoryDecision: { choice: 'release' } }) === 'released');
 
 // ---------- 3. 自测结果确实传入行动接口 ----------
 const quizResult = {
@@ -123,6 +148,13 @@ const pendingNoteFeedback = lib.summarizeActionFeedback(lib.loadRoad(data));
 check('只写准备笔记但未选择现实结果时，不反哺下一轮',
   pendingNoteFeedback.done === 3
   && !pendingNoteFeedback.notes.some((item) => item.note === '只写了准备笔记，还没得出结果'));
+check('带回现实结果但尚未在行动簿确认时，不进入长期记忆',
+  lib.summarizeActionFeedback({ p0t0: { done: true, verdict: 'up', note: '查看了 3 个真实岗位', stage: 'pending_confirmation' } }).done === 0);
+check('用户在行动簿确认后，现实结果才进入长期记忆',
+  lib.summarizeActionFeedback({ p0t0: { done: true, verdict: 'up', note: '查看了 3 个真实岗位', stage: 'confirmed', memoryDecision: { choice: 'keep' }, hypothesis: '岗位仍在招聘' } }).up[0] === '岗位仍在招聘');
+check('选择暂不改变或放下时，不会把候选解释写入长期记忆',
+  lib.summarizeActionFeedback({ p0t0: { done: true, verdict: 'down', note: '样本不足', memoryDecision: { choice: 'defer' } } }).done === 0
+  && lib.summarizeActionFeedback({ p0t0: { done: true, verdict: 'down', note: '暂不采用', memoryDecision: { choice: 'release' } } }).done === 0);
 lib.saveRoad(data, '__current', { ...currentTask, done: true, verdict: 'down', hypothesis: currentTask.verify, note: '3 条 JD 中有 2 条不限学历' });
 const roadWithCurrentResult = lib.loadRoad(data);
 const feedbackWithCurrent = lib.summarizeActionFeedback(roadWithCurrentResult);

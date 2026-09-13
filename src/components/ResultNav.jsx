@@ -10,11 +10,12 @@ const LABELS = {
 };
 
 // 结果页常驻导航：随时修改简历卡 + 五步逻辑链主线
-export default function ResultNav({ current, onGoto, onEditCard, quizDone, visited }) {
+export default function ResultNav({ current, onGoto, onEditCard, quizDone, visited, onOpenJournal }) {
   return (
     <nav className="result-nav" aria-label="结果页导航">
       <div className="result-nav-top">
         <button className="chip ghost nav-edit" onClick={onEditCard}>调整路标</button>
+        <button className="link-btn nav-journal" onClick={onOpenJournal}>打开行动簿</button>
         <span className="nav-sub">当前在 <b>{LABELS[current] || ''}</b> · 建议顺着山径走，也可返回看过的页面</span>
       </div>
       <LogicChain current={current} onGoto={onGoto} quizDone={quizDone} visited={visited} />

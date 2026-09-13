@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { api, recordToText } from '../lib.js';
+import { journalSummary } from '../journal.js';
 import './spirit.css';
 
 // 刘看山的官方透明 GIF 动图（放在 public/liukanshan/，构建时随 dist 一起托管）
@@ -25,6 +26,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
   const endRef = useRef(null);
   const firedRef = useRef({}); // 记录已触发的节点，避免重复冒泡
   const bubbleTimerRef = useRef(null);
+  const journal = journalSummary(records);
 
   const hideBubble = useCallback(() => {
     window.clearTimeout(bubbleTimerRef.current);
@@ -56,6 +58,8 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
     let text = null;
     if (step === 'landing' && records.length === 0) {
       text = '第一次来呀？先标记你的位置，我陪你炼出第一个炼金包吧～ 点我随时聊。';
+    } else if (step === 'landing' && journal.waiting > 0) {
+      text = `你带回的现实里有 ${journal.waiting} 条新脚印，正在行动簿等你确认。确认前，我不会把它们当成你的新结论。`;
     } else if (step === 'result0') {
       text = '山径图画好了。先从“听不同声音”开始，再做自测，最后才排你的行动路线。';
     } else if (step === 'result3') {
@@ -65,7 +69,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
       firedRef.current[key] = true;
       showBubble({ text });
     }
-  }, [step, records.length, showBubble]);
+  }, [step, records.length, journal.waiting, showBubble]);
 
   // 用户完成核心问题后再提示补充信息。延迟出现，避免和输入动作抢注意力。
   useEffect(() => {

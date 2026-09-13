@@ -1,11 +1,13 @@
 import React from 'react';
-import { esc, diffRouteChange, loadRoad } from '../lib.js';
+import { esc, diffRouteChange, loadRoad, normalizeCurrentTask } from '../lib.js';
+import { journalSummary } from '../journal.js';
 
 // 「我的山径」：有历史时展示成长山径（时间线节点），无历史也露出「暂无记录」引导，
 // 让"长期陪伴"的概念随时看得见。知识库对话已统一由右下角常驻的刘看山承担。
-export default function Landing({ onStart, records = [], onOpen, onClear, onExport, onImport }) {
+export default function Landing({ onStart, records = [], onOpen, onClear, onExport, onImport, onOpenJournal }) {
   const list = Array.isArray(records) ? records : [];
   const has = list.length > 0;
+  const journal = journalSummary(list);
 
   return (
     <section className="card landing">
@@ -29,6 +31,14 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
           ? `你的山径上已有 ${list.length} 座山头${list.length >= 30 ? '（山径最多记 30 座山头，更早的会被新的替下）' : ''}。每次炼金都是插下的一面小旗——点开任意一座，都能回到那天你看到的山势。`
           : '山外有山，路在脚下。每一次炼金，都是你在山径上插的一面小旗。'}
       </p>
+
+      {has && (
+        <button type="button" className="landing-journal-entry" onClick={onOpenJournal}>
+          <span className="lje-mark" aria-hidden="true">↗</span>
+          <span><b>行动簿</b><small>看判断如何被现实改写</small></span>
+          <span className={journal.waiting ? 'lje-status attention' : 'lje-status'}>{journal.waiting ? `${journal.waiting} 条变化等你确认` : `${journal.verifying} 条正在验证`}</span>
+        </button>
+      )}
 
       {!has && (
         <p className="landing-desc">
@@ -64,8 +74,9 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
             const ch = diffRouteChange(older, r.quiz, (r.data && r.data.conflict && r.data.conflict.roles) || []);
             const fb = r.actionFeedback || null;
             const hasFb = fb && (fb.done || (fb.up && fb.up.length) || (fb.down && fb.down.length) || (fb.unclear && fb.unclear.length) || (fb.notes && fb.notes.length));
-            const currentTask = r.currentTask || (r.data ? loadRoad(r.data)?.__current : null);
-            const taskStepCount = Object.values(currentTask?.steps || {}).filter(Boolean).length;
+            const currentTask = normalizeCurrentTask(r.currentTask || (r.data ? loadRoad(r.data)?.__current : null));
+            const preparationTotal = Math.max(1, ((currentTask?.rows || []).length || 3) - 1);
+            const taskStepCount = Object.entries(currentTask?.steps || {}).filter(([index, done]) => done && Number(index) < preparationTotal).length;
             return (
               <button key={r.id} className={`map-node ${hasFb ? 'has-fb' : 'pending'}`} onClick={() => onOpen && onOpen(r)}>
                 <span className="map-dot" aria-hidden="true" />
@@ -77,7 +88,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
                     {!r.fallback && r.lowConfidence && <em className="record-flag" title="知乎上直接聊这个的不多，内容由相近主题的真实讨论垫上"> · 素材偏少</em>}
                   </div>
                   {currentTask?.started && !currentTask?.verdict && (
-                    <div className="map-current-task">待验证 · 已完成 {taskStepCount}/{(currentTask.rows || []).length || 3} 步</div>
+                    <div className="map-current-task">待验证 · 准备 {taskStepCount}/{preparationTotal}</div>
                   )}
                   {/* 上一次做了什么、结果如何（行动结果反哺后才有） */}
                   {hasFb && (

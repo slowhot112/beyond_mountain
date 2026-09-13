@@ -171,7 +171,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                 <div className="quiz-focus">
                   这题对应的观点前提：
                   {focusRoleOf(q).stance
-                    ? <span className="quiz-focus-stance">（{esc(focusRoleOf(q).stance)}）</span>
+                    ? <span className="quiz-focus-stance">{esc(focusRoleOf(q).stance)}</span>
                     : null}
                 </div>
               )}

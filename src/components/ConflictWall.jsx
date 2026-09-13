@@ -104,7 +104,7 @@ function RebutItem({ r, roles }) {
   const text = typeof r === 'string' ? r : (r.text || r.quote || '');
   // 如果角色名带「·」，只显示派系前缀，避免 target 名长得像文章标题、和来源卡片视觉重复
   const targetFull = target?.name || target?.stance || to;
-  const targetShort = (target?.name?.split('·')[0]?.trim()) || target?.name || target?.stance || to;
+      const targetShort = target?.stance || target?.coreArg || '另一种观点';
   return (
     <div className="rebut-item">
       <span className="rebut-arrow">→</span>

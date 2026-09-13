@@ -63,6 +63,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
             <input type="file" accept="application/json,.json" onChange={(e) => { onImport?.(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
         </div>
+        <small className="landing-storage-note">记录保存在当前设备；换设备时导出后再导入，不会自动同步到云端。</small>
         {!has && <span className="landing-hint muted">先说说你站在哪个路口，约两分钟给你画出路标</span>}
       </div>
 

@@ -1459,6 +1459,9 @@ a { color: var(--zhihu); }
 .landing-actions { margin-top: 22px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .landing-archive-actions { display: inline-flex; align-items: center; gap: 12px; margin-top: 2px; }
 .landing-storage-note { max-width: 42ch; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; }
+.landing-account { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 12px; max-width: 48ch; padding-top: 4px; color: var(--ink-soft); font-size: 13px; }
+.landing-account-copy { color: var(--muted); }
+.landing-account-state { color: var(--green); font-weight: 650; }
 .landing-import { position: relative; cursor: pointer; }
 .landing-import input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .landing-clear { margin-left: 0; color: var(--muted); }

@@ -39,7 +39,8 @@
 - **前端**：React 18 + Vite 5，组件化（`src/`）；`vite.config.js` 配置开发代理（`/api` → 3000）。
 - **后端**：Node.js（ESM，零 npm 运行时依赖），`server.mjs` 托管 `dist/` 静态产物并代理知乎 API；`zhihu.js` 封装鉴权、文件缓存与搜索/热榜/直答/额度接口。
 - **简历解析链路**：PDF（pdfjs）/ DOCX（mammoth）/ 图片 OCR（tesseract.js，懒加载）/ TXT·MD 只在浏览器读取 → `/api/resume` 接收提取后的文字并做结构化整理（StepFun 优先，未配置则知乎直答兜底，均无则提示手动填写）。
-- **鉴权**：仅需赛事发放的 `Access Secret`（请求头 `Authorization: Bearer` + `X-Request-Timestamp`），**无需 OAuth**；比赛构建的 `/api/oauth/*` 路由已显式关闭。
+- **鉴权**：知乎开放能力使用服务端 `Access Secret`（请求头 `Authorization: Bearer` + `X-Request-Timestamp`）；登录是可选增强，不阻断游客模式。旧版 `/api/oauth/*` 路由已停用，新的登录接口位于 `/api/auth/*`。
+- **可选账号同步**：配置黑客松 `ZHIHU_OAUTH_APP_ID`、`ZHIHU_OAUTH_APP_KEY`、HTTPS 回调和 `SYNC_STORAGE_KEY` 后，首页可启用知乎登录与行动簿同步；未配置时仍是游客模式。同步首次合并会展示冲突并由用户确认，不静默覆盖。本版本的文件存储仅适合原型或挂载持久化卷的部署，正式长期服务应替换为托管数据库。
 - **缓存**：文件系统 TTL 缓存（搜索 1h / 直答 10min / 热榜 1h），降低 API 调用频次。
 
 ## 本地运行
@@ -84,7 +85,13 @@ npm start
 | `/api/alchemy` | POST | 主流程：处境卡检索 + 直答生成对峙/自测/行动 |
 | `/api/resume` | POST | 简历文本 → 结构化字段（StepFun 优先 / 直答兜底） |
 | `/api/parse-doc` | — | 比赛版本关闭原文件上传，返回 `410 FILE_UPLOAD_DISABLED` |
-| `/api/oauth/*` | — | 比赛版本明确禁用，返回 `501 OAUTH_DISABLED` |
+| `/api/oauth/*` | — | 旧版路由停用，返回 `410 OAUTH_ROUTE_MOVED`；请使用 `/api/auth/*` |
+| `/api/auth/config` | GET | 查询是否启用可选知乎登录 |
+| `/api/auth/login` | GET | 获取知乎授权跳转地址（未配置时返回游客模式提示） |
+| `/api/auth/callback` | GET | 接收知乎授权码并建立 HttpOnly 会话 |
+| `/api/auth/me` | GET | 查询当前登录状态 |
+| `/api/auth/logout` | POST | 清理当前会话 |
+| `/api/sync/archive` | GET/PUT | 读取或保存加密行动簿档案（需登录） |
 
 ### 隐私与本地数据
 

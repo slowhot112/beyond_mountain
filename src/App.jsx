@@ -46,10 +46,38 @@ export default function App() {
   const currentRecordId = useRef(null); // 当前生成 / 正在回看的那条存档 id，答题结果写回它
   const [metaOpen, setMetaOpen] = useState(false); // 结果页顶部来源提示：默认收起
   const [guidePrompt, setGuidePrompt] = useState(null);
+  const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null });
+  const [authConfig, setAuthConfig] = useState({ enabled: false });
   const [carryoverChoice, setCarryoverChoice] = useState(null);
   const carryoverCandidates = useMemo(() => findCarryoverCandidates(records, card || {}), [records, card]);
 
-  useEffect(() => { setHistory(loadHistory()); setRecords(loadRecords()); }, []);
+  useEffect(() => {
+    setHistory(loadHistory()); setRecords(loadRecords());
+    Promise.all([api('/api/auth/config'), api('/api/auth/me')]).then(([config, me]) => {
+      setAuthConfig(config || { enabled: false }); setAuth(me || { authenticated: false });
+    }).catch(() => setAuth({ loading: false, authenticated: false }));
+  }, []);
+
+  async function startZhihuLogin() {
+    try {
+      const result = await api('/api/auth/login');
+      if (result?.data?.authorizeUrl) window.location.assign(result.data.authorizeUrl);
+      else setError(result?.message || '当前无法发起知乎登录，仍可继续游客模式。');
+    } catch { setError('知乎登录暂时不可用，仍可继续游客模式。'); }
+  }
+
+  async function syncArchive() {
+    if (!auth.authenticated) return startZhihuLogin();
+    try {
+      const remote = await api('/api/sync/archive');
+      if (remote?.archive) {
+        const overwriteLocal = window.confirm('云端已有行动簿档案。点击“确定”将云端记录带回本机，并覆盖同主题记录；点击“取消”保留本机同主题记录。\n\n两种选择都会合并不冲突的记录，不会静默删除另一端内容。');
+        importLocalArchive(remote.archive, { overwriteConflicts: overwriteLocal });
+      }
+      await api('/api/sync/archive', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archive: exportLocalArchive() }) });
+      setRecords(loadRecords()); setError('行动簿已完成一次同步。');
+    } catch { setError('同步没有完成，本地行动簿不受影响。'); }
+  }
 
   function go(stepName) {
     setError(null);
@@ -363,6 +391,10 @@ export default function App() {
             }}
             onExport={handleExportArchive}
             onImport={handleImportArchive}
+            auth={auth}
+            authConfig={authConfig}
+            onLogin={startZhihuLogin}
+            onSync={syncArchive}
             onOpenJournal={() => go('journal')}
             />
         )}

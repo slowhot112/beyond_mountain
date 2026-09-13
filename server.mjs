@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join, extname, normalize, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import crypto from 'node:crypto';
 import * as zhihu from './zhihu.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,49 @@ function loadEnv() {
   } catch {}
 }
 loadEnv();
+const oauth = await import('./oauth.js');
+const oauthSessions = new Map();
+const oauthStates = new Map();
+const SYNC_FILE = join(__dirname, '.cache', 'oauth-archives.json');
+const SYNC_KEY = process.env.SYNC_STORAGE_KEY || '';
+
+function parseCookies(req) {
+  return String(req.headers.cookie || '').split(';').reduce((out, part) => {
+    const i = part.indexOf('='); if (i < 0) return out;
+    out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); return out;
+  }, {});
+}
+function sessionCookieName() { return process.env.NODE_ENV === 'production' ? '__Host-shanwaishan-session' : 'shanwaishan-session'; }
+function sessionUser(req) {
+  const token = parseCookies(req)[sessionCookieName()];
+  return token ? oauthSessions.get(token) || null : null;
+}
+function setSessionCookie(res, token, maxAge = 60 * 60 * 24 * 30) {
+  res.setHeader('Set-Cookie', `${sessionCookieName()}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+}
+function oauthReady() { return Boolean(oauth.oauthConfig.hasAppCreds && SYNC_KEY); }
+function stableUserId(info) {
+  const raw = String(info?.id || info?.uid || info?.url_token || info?.name || JSON.stringify(info));
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 32);
+}
+function archiveCipher(text, mode) {
+  if (!SYNC_KEY) return text;
+  const key = crypto.createHash('sha256').update(SYNC_KEY).digest();
+  if (mode === 'encrypt') {
+    const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const body = Buffer.concat([c.update(text, 'utf8'), c.final()]);
+    return `${iv.toString('base64url')}.${c.getAuthTag().toString('base64url')}.${body.toString('base64url')}`;
+  }
+  const [iv, tag, body] = String(text).split('.');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url')); d.setAuthTag(Buffer.from(tag, 'base64url'));
+  return Buffer.concat([d.update(Buffer.from(body, 'base64url')), d.final()]).toString('utf8');
+}
+function loadArchives() { try { return JSON.parse(readFileSync(SYNC_FILE, 'utf8')); } catch { return {}; } }
+async function saveArchive(userId, archive) {
+  const all = loadArchives(); all[userId] = archive;
+  await mkdir(dirname(SYNC_FILE), { recursive: true });
+  await writeFile(SYNC_FILE, JSON.stringify(all), 'utf8');
+}
 
 // 鉴权密钥：主名 OPENAI_API_KEY（对齐 OpenAI 生态，见 DECISIONS D-11）；旧名 ZHIHU_ACCESS_SECRET 保留为回退
 const SECRET = process.env.OPENAI_API_KEY || process.env.ZHIHU_ACCESS_SECRET || '';
@@ -270,12 +314,45 @@ const server = createServer(async (req, res) => {
   const q = url.searchParams.get('q') || url.searchParams.get('query') || '';
 
   try {
+    if (url.pathname === '/api/auth/config' && req.method === 'GET') {
+      return sendJson(res, { ok: true, data: { enabled: oauthReady(), mock: oauth.oauthConfig.MOCK, message: oauthReady() ? '可使用知乎账号保存行动簿。' : '当前为游客模式；配置 OAuth 与同步密钥后可登录。' } });
+    }
+    if (url.pathname === '/api/auth/login' && req.method === 'GET') {
+      if (!oauthReady()) return sendJson(res, { ok: false, code: 'AUTH_NOT_CONFIGURED', message: '当前未配置知乎登录，游客模式仍可正常使用。' }, 503);
+      const state = crypto.randomBytes(18).toString('base64url'); oauthStates.set(state, Date.now() + 10 * 60 * 1000);
+      return sendJson(res, { ok: true, data: { authorizeUrl: oauth.getAuthorizeUrl(state) } });
+    }
+    if (url.pathname === '/api/auth/callback' && req.method === 'GET') {
+      const state = url.searchParams.get('state') || ''; const code = url.searchParams.get('authorization_code') || url.searchParams.get('code');
+      const expiry = oauthStates.get(state); oauthStates.delete(state);
+      if (!expiry || expiry < Date.now() || !code) return sendJson(res, { ok: false, code: 'AUTH_CALLBACK_INVALID', message: '登录授权已失效，请返回后重试。' }, 400);
+      try {
+        const token = await oauth.exchangeToken(code); const info = await oauth.getUserInfo(token.access_token); const userId = stableUserId(info);
+        const session = crypto.randomBytes(32).toString('base64url'); oauthSessions.set(session, { userId, name: info?.name || '知乎用户', token: token.access_token, mock: !!token.mock, createdAt: Date.now() });
+        setSessionCookie(res, session);
+        res.writeHead(302, { ...SECURITY_HEADERS, Location: '/?auth=success' }); res.end(); return;
+      } catch (e) { return sendJson(res, { ok: false, code: 'AUTH_EXCHANGE_FAILED', message: '知乎授权没有完成，仍可继续以游客模式使用。' }, 502); }
+    }
+    if (url.pathname === '/api/auth/me' && req.method === 'GET') {
+      const user = sessionUser(req); return sendJson(res, { ok: true, data: user ? { authenticated: true, user: { id: user.userId, name: user.name, mock: user.mock } } : { authenticated: false } });
+    }
+    if (url.pathname === '/api/auth/logout' && req.method === 'POST') {
+      const token = parseCookies(req)[sessionCookieName()]; if (token) oauthSessions.delete(token); setSessionCookie(res, '', 0);
+      return sendJson(res, { ok: true, data: { authenticated: false } });
+    }
+    if (url.pathname === '/api/sync/archive' && (req.method === 'GET' || req.method === 'PUT')) {
+      const user = sessionUser(req); if (!user) return sendJson(res, { ok: false, code: 'AUTH_REQUIRED', message: '请先登录知乎账号，或继续使用本地档案。' }, 401);
+      if (req.method === 'GET') {
+        const raw = loadArchives()[user.userId]; if (!raw) return sendJson(res, { ok: true, data: { archive: null } });
+        try { return sendJson(res, { ok: true, data: { archive: JSON.parse(archiveCipher(raw, 'decrypt')) } }); } catch { return sendJson(res, { ok: false, code: 'SYNC_DATA_INVALID', message: '云端档案暂时无法读取。' }, 500); }
+      }
+      let body = {}; try { body = await readBody(req, 2_000_000); } catch (e) { return bodyError(res, e); }
+      if (!body.archive || body.archive.type !== 'zhihu-alchemy-archive') return sendJson(res, { ok: false, code: 'INVALID_ARCHIVE', message: '档案格式不正确。' }, 400);
+      await saveArchive(user.userId, archiveCipher(JSON.stringify(body.archive), 'encrypt'));
+      return sendJson(res, { ok: true, data: { savedAt: Date.now() } });
+    }
     if (url.pathname.startsWith('/api/oauth/')) {
-      return sendJson(res, {
-        ok: false,
-        code: 'OAUTH_DISABLED',
-        message: '比赛版本未启用 OAuth；当前仅使用服务端 Access Secret 调用开放平台。',
-      }, 501);
+      return sendJson(res, { ok: false, code: 'OAUTH_ROUTE_MOVED', message: '请使用 /api/auth/* 登录接口；旧版 /api/oauth/* 路由不再使用。' }, 410);
     }
     if (url.pathname === '/api/parse-doc') {
       return sendJson(res, {

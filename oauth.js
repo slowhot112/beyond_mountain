@@ -8,11 +8,14 @@
 
 import crypto from 'node:crypto';
 
-const OAUTH_BASE = 'https://oauth.zhihu.com';
+const OAUTH_BASE = 'https://openapi.zhihu.com';
 const APP_ID = process.env.ZHIHU_OAUTH_APP_ID || '';
 const APP_KEY = process.env.ZHIHU_OAUTH_APP_KEY || '';
 const REDIRECT_URI = process.env.ZHIHU_OAUTH_REDIRECT || 'http://localhost:3000/api/oauth/callback';
-const MOCK = (process.env.OAUTH_MOCK || 'true') === 'true'; // 默认本地 mock
+// 本地无凭证时允许 Mock 走查；一旦配置了赛事 App ID / App Key，默认必须走真实授权。
+// 只有显式设置 OAUTH_MOCK=true 才允许在有凭证时继续 Mock，避免生产环境误把假登录当成真实账号。
+const defaultMock = !(APP_ID && APP_KEY);
+const MOCK = process.env.OAUTH_MOCK == null ? defaultMock : /^(1|true|yes)$/i.test(process.env.OAUTH_MOCK);
 
 // 生成签名（参考文档 HMAC-SHA256）
 function oauthSignature(appKey, ts, nonce) {
@@ -46,10 +49,17 @@ export async function exchangeToken(code) {
     // 本地演示：不真实请求知乎，返回一个假 token
     return { access_token: 'mock_token_' + crypto.randomBytes(6).toString('hex'), mock: true };
   }
-  const r = await fetch(`${OAUTH_BASE}/token`, {
+  const form = new URLSearchParams({
+    app_id: APP_ID,
+    app_key: APP_KEY,
+    grant_type: 'authorization_code',
+    redirect_uri: REDIRECT_URI,
+    code,
+  });
+  const r = await fetch(`${OAUTH_BASE}/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
   });
   if (!r.ok) throw new Error('token exchange failed: ' + r.status);
   return r.json();

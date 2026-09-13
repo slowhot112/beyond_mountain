@@ -43,13 +43,14 @@ function sideDisplayName(roleMap, side) {
 
 function presentOptionLabel(q, opt, role) {
   const raw = typeof opt === 'string' ? opt : opt?.label;
-  if (!role || !/(答主|知乎|汤家凤|车辆工程考研|人生修炼手册|作者|来源)/.test(String(raw || ''))) return raw;
+  const normalized = String(raw || '').replace(/^该答主(认为|分享)：?\s*/, '').trim();
+  if (!role || !/(答主|知乎|汤家凤|车辆工程考研|人生修炼手册|作者|来源)/.test(String(raw || ''))) return normalized;
   const s = String(q?.scenario || '');
   if (/前提下才成立/.test(s)) return '它只在特定城市、资历和机会条件下成立';
   if (/反对意见/.test(s)) return `另一种观点提醒：${String(role.stance || role.coreArg || '').replace(/^该答主(认为|分享)：?/, '')}`;
   if (/未经验证的前提/.test(s)) return '它成立的前提，是你的城市、资历和机会与案例接近';
   if (/可借鉴度/.test(s)) return '如果你的处境相近，这条观点才更值得参考';
-  return String(role.stance || role.coreArg || raw || '').replace(/^该答主(认为|分享)：?/, '');
+  return String(role.stance || role.coreArg || normalized || '').replace(/^该答主(认为|分享)：?\s*/, '');
 }
 
 function presentAnswerLabel(q, answer, roleMap) {
@@ -171,7 +172,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                 <div className="quiz-focus">
                   这题对应的观点前提：
                   {focusRoleOf(q).stance
-                    ? <span className="quiz-focus-stance">{esc(focusRoleOf(q).stance)}</span>
+                    ? <span className="quiz-focus-stance">{esc(String(focusRoleOf(q).stance).replace(/^该答主(认为|分享)：?\s*/, ''))}</span>
                     : null}
                 </div>
               )}

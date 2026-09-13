@@ -3,6 +3,12 @@ import { esc, brief, normTitle, personaLabel, loadRoad, saveRoad } from '../lib.
 
 // 山头调色板：每个观点角色对应一条固定的山色，贯穿观点墙→自测→行动地图
 const HILL = ['#2f6fa8', '#4c7a5a', '#8a6a3a', '#7c5cb0', '#0e7490'];
+const VIEWPOINT_LABELS = ['一线从业者', '资深从业者', '行业观察者', '过来人'];
+function displayRoleName(s, i) {
+  const name = String(s?.name || '').trim();
+  if (!name || /知乎答主|汤家凤|车辆工程考研|人生修炼手册|答主|来源/.test(name)) return VIEWPOINT_LABELS[i % VIEWPOINT_LABELS.length];
+  return name;
+}
 
 // 后端偶尔会把 boundary 写成"代表个人观点"这类空话，前端兜底反向生成一条具体边界
 function cleanBoundary(s) {
@@ -212,8 +218,8 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
                 <span className="role-hill" style={{ background: HILL[i % HILL.length] }} />
                 <span className={`role-mark role-mark-${(i % 5) + 1}`} aria-hidden="true">{i + 1}</span>
                 <div>
-                  <div className="role-name">{esc(s.name || s.stance || `第 ${i + 1} 派`)}</div>
-                  <div className="role-form">{esc(s.form || s.stance || '')}</div>
+                  <div className="role-name">{esc(displayRoleName(s, i))}</div>
+                  <div className="role-form">观点身份 · 来自真实讨论</div>
                 </div>
               </div>
               <span className="role-toggle">{openIdx === i ? '收起' : '查看这条观点'}</span>

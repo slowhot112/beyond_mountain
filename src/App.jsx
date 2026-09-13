@@ -12,7 +12,7 @@ import ResultNav from './components/ResultNav.jsx';
 import SpiritGuide from './components/SpiritGuide.jsx';
 import {
   recordTopic, recordSide, loadHistory, exportMd, personaLabel, personaPayload, buildQueries, api,
-  saveRecord, loadRecords, updateRecordQuiz, updateRecordRoadmap, flattenRoadmap,
+  saveRecord, loadRecords, loadRoad, saveRoad, updateRecordQuiz, updateRecordRoadmap, updateRecordCurrentTask, flattenRoadmap,
   buildAlchemyPayload, collectActionFeedback, updateRecordActionFeedback,
   routeConfidence, routeMissingCount, canGenerateFullRoute, clearLocalData,
   exportLocalArchive, importLocalArchive,
@@ -280,6 +280,8 @@ export default function App() {
     currentRecordId.current = rec.id;
     setCard(rec.card || null);
     setData(rec.data);
+    // 导入到新设备的山径也能继续同一条待验证任务，不让联动只存在于原浏览器。
+    if (rec.currentTask) saveRoad(rec.data, '__current', rec.currentTask);
     setTopic(rec.topic || rec.data.topic || '');
     setQuizResult(rec.quiz || null);
     // 若当年生成过完整路线，直接还原，不重复消耗直答
@@ -287,6 +289,12 @@ export default function App() {
     else setPrefetchedActions(null);
     setVisitedResults(['result0', ...(rec.quiz ? ['result2'] : []), ...(rec.data.roadmap ? ['result3'] : [])]);
     go('result0');
+  }
+
+  function handleCurrentTaskChange(currentTask) {
+    if (!currentTask) return;
+    if (currentRecordId.current) updateRecordCurrentTask(currentRecordId.current, currentTask);
+    setRecords(loadRecords());
   }
 
   // 页面解锁只看当前这一次自测；长期累计偏好不能让新一轮分析被误判为“已经答完”。
@@ -444,7 +452,7 @@ export default function App() {
             {step === 'result1' && (
               <>
                 <ResultHead back />
-                <ConflictWall conflict={data.conflict} persona={card} demo={!!data.mock} sourceStats={data.searchStats} roadData={data} onNext={() => go('result2')} />
+                <ConflictWall conflict={data.conflict} persona={card} demo={!!data.mock} sourceStats={data.searchStats} roadData={data} onTaskChange={handleCurrentTaskChange} onNext={() => go('result2')} />
               </>
             )}
             {step === 'result2' && (
@@ -470,6 +478,7 @@ export default function App() {
                     index,
                     scenario,
                   })}
+                  currentTask={loadRoad(data)?.__current || null}
                 />
               </>
             )}
@@ -497,6 +506,7 @@ export default function App() {
                   historyFeedback={historyFeedback}
                   onRouteReady={handleRouteReady}
                   onFeedbackChange={handleActionFeedback}
+                  onCurrentTaskChange={handleCurrentTaskChange}
                 />
               </>
             )}

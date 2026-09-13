@@ -93,20 +93,53 @@ localStorage.setItem('alchemy:records', JSON.stringify([rec]));
 lib.saveRoad(data, 'p0t0', { done: true, verdict: 'up', hypothesis: '岗位门槛是否卡学历', note: '投了 8 份，2 个回复' });
 lib.saveRoad(data, 'p0t1', { done: true, verdict: 'down', hypothesis: '先考证再求职是否更快' });
 lib.saveRoad(data, 'p1t0', { done: true, verdict: 'unclear' });
-lib.saveRoad(data, '__current', { started: true, startedAt: 1700000000000 });
+const currentTask = {
+  started: true,
+  startedAt: 1700000000000,
+  verify: '验证岗位是否真的卡学历',
+  rows: [{ label: '准备', text: '找 3 条真实 JD' }, { label: '去做', text: '逐条核对' }, { label: '带回结果', text: '记录结论' }],
+  steps: { 0: true },
+};
+lib.saveRoad(data, '__current', currentTask);
 const roadState = lib.loadRoad(data);
 check('当前验证任务“已开始”状态可在刷新后恢复',
-  roadState.__current?.started === true && roadState.__current?.startedAt === 1700000000000);
-const fb = lib.summarizeActionFeedback(roadState);
-check('行动完成状态与反馈被汇总（做过 3 步 / 属实 1 / 打脸 1 / 待定 1）',
-  fb.done === 3 && fb.up.length === 1 && fb.down.length === 1 && fb.unclear.length === 1,
+  roadState.__current?.started === true && roadState.__current?.startedAt === 1700000000000
+  && roadState.__current?.verify === '验证岗位是否真的卡学历' && roadState.__current?.steps?.[0] === true);
+lib.updateRecordCurrentTask(rec.id, currentTask);
+const taskSavedRecord = lib.loadRecords().find((r) => r.id === rec.id);
+check('待验证任务内容与进度写回当前山径',
+  taskSavedRecord?.currentTask?.verify === '验证岗位是否真的卡学历'
+  && taskSavedRecord?.currentTask?.steps?.[0] === true);
+const taskPayload = lib.buildActionsPayload({
+  data, quizResult, persona: { city: '上海' }, sources: data.sources, feedback: [], currentTask, manual: false,
+});
+check('加入的验证任务传入行动路线生成，而不是停在观点墙',
+  taskPayload.currentTask?.started === true
+  && taskPayload.currentTask?.verify === '验证岗位是否真的卡学历');
+check('仅加入、尚未回填现实结果时，不计作已完成反馈',
+  lib.summarizeActionFeedback(roadState).done === 3);
+lib.saveRoad(data, '__current', { ...currentTask, note: '只写了准备笔记，还没得出结果' });
+const pendingNoteFeedback = lib.summarizeActionFeedback(lib.loadRoad(data));
+check('只写准备笔记但未选择现实结果时，不反哺下一轮',
+  pendingNoteFeedback.done === 3
+  && !pendingNoteFeedback.notes.some((item) => item.note === '只写了准备笔记，还没得出结果'));
+lib.saveRoad(data, '__current', { ...currentTask, done: true, verdict: 'down', hypothesis: currentTask.verify, note: '3 条 JD 中有 2 条不限学历' });
+const roadWithCurrentResult = lib.loadRoad(data);
+const feedbackWithCurrent = lib.summarizeActionFeedback(roadWithCurrentResult);
+check('小验证回填现实结果后，进入统一行动反馈',
+  feedbackWithCurrent.done === 4
+  && feedbackWithCurrent.down.includes('验证岗位是否真的卡学历')
+  && feedbackWithCurrent.notes.some((item) => item.note === '3 条 JD 中有 2 条不限学历'));
+const fb = lib.summarizeActionFeedback(roadWithCurrentResult);
+check('行动完成状态与反馈被汇总（含前置小验证，共做过 4 项）',
+  fb.done === 4 && fb.up.length === 1 && fb.down.length === 2 && fb.unclear.length === 1,
   `done=${fb.done} up=${fb.up.length} down=${fb.down.length} unclear=${fb.unclear.length}`);
-check('用户手写的现实反馈被保留', fb.notes.length === 1 && fb.notes[0].note === '投了 8 份，2 个回复');
+check('用户手写的现实反馈被保留', fb.notes.length === 2 && fb.notes.some((item) => item.note === '投了 8 份，2 个回复'));
 
 lib.updateRecordActionFeedback(rec.id, fb);
 const saved = lib.loadRecords().find((r) => r.id === rec.id);
 check('行动结果写回存档（下次可读）',
-  !!saved && !!saved.actionFeedback && saved.actionFeedback.down.length === 1,
+  !!saved && !!saved.actionFeedback && saved.actionFeedback.down.length === 2,
   saved && saved.actionFeedback ? `down=${saved.actionFeedback.down.length}` : '无');
 
 // ---------- 5. 下一次炼金能读取上一轮行动结果 ----------
@@ -120,8 +153,8 @@ const alchemyPayload = lib.buildAlchemyPayload({
 check('炼金请求体带上「上一轮行动结果」',
   alchemyPayload.records.length > 0
   && alchemyPayload.records[0].actionFeedback
-  && alchemyPayload.records[0].actionFeedback.down.length === 1
-  && alchemyPayload.records[0].actionFeedback.notes.length === 1,
+  && alchemyPayload.records[0].actionFeedback.down.length === 2
+  && alchemyPayload.records[0].actionFeedback.notes.length === 2,
   `records=${alchemyPayload.records.length}`);
 const selected = zhihu.selectHistory('数据分析实习还有机会吗', alchemyPayload.records);
 check('后端能选出相关历史（历史确实进入炼金上下文，不是摆设）',

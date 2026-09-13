@@ -116,7 +116,7 @@ function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, roleName }) {
   );
 }
 
-export default function ActionMap({ data, quizResult, persona, prefetchedActions, prevRecord, historyFeedback, onRouteReady, onFeedbackChange }) {
+export default function ActionMap({ data, quizResult, persona, prefetchedActions, prevRecord, historyFeedback, onRouteReady, onFeedbackChange, onCurrentTaskChange }) {
   const [done, setDone] = useState({}); // 旧平铺卡片勾选（回退 UI）
   const [road, setRoad] = useState({}); // 完整路线任务：taskKey -> {done, verdict}
   const [manualRoadmap, setManualRoadmap] = useState(null); // 手动"重做"来的路线
@@ -196,6 +196,59 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     if (onFeedbackChange) onFeedbackChange(summarizeActionFeedback(next));
   }
 
+  function commitCurrentTask(patch) {
+    const previous = road.__current || {};
+    const nextTask = { ...previous, ...patch };
+    saveRoad(data, '__current', nextTask);
+    const next = { ...road, __current: nextTask };
+    setRoad(next);
+    onCurrentTaskChange?.(nextTask);
+    // 加入、勾步骤或写准备笔记都不等于验证结论；只有明确回填现实结果才反哺下一轮。
+    if (onFeedbackChange && nextTask.verdict) onFeedbackChange(summarizeActionFeedback(next));
+  }
+
+  function currentTaskBridge() {
+    const currentTask = road.__current;
+    if (!currentTask?.started) return null;
+    const rows = Array.isArray(currentTask.rows) ? currentTask.rows : [];
+    const steps = currentTask.steps || {};
+    const completed = Object.values(steps).filter(Boolean).length;
+    const total = rows.length || 3;
+    return (
+      <section className="current-task-bridge action-task-bridge" aria-labelledby="action-current-task-title">
+        <span className="current-task-bridge-kicker">从观点墙带来的待验证任务</span>
+        <h3 id="action-current-task-title">{esc(currentTask.verify || '继续完成你加入的小验证')}</h3>
+        <p>已完成 {completed}/{total} 步。它会留在这里，直到你带回现实结果。</p>
+        {rows.length > 0 && (
+          <div className="current-task-bridge-steps">
+            {rows.map((row, index) => (
+              <label key={row.label || index} className={steps[index] ? 'done' : ''}>
+                <input type="checkbox" checked={!!steps[index]} onChange={() => commitCurrentTask({ steps: { ...steps, [index]: !steps[index] } })} />
+                <span>{steps[index] ? '✓' : index + 1}</span>
+                <b>{esc(row.label)}</b>
+              </label>
+            ))}
+          </div>
+        )}
+        <div className="current-task-result">
+          <span>带回的结果：</span>
+          {[
+            { value: 'up', label: '较符合这条观点' },
+            { value: 'down', label: '不符合这条观点' },
+            { value: 'unclear', label: '还不能判断' },
+          ].map((item) => (
+            <button key={item.value} type="button" className={`chip${currentTask.verdict === item.value ? ' active' : ''}`} onClick={() => commitCurrentTask({ verdict: item.value, done: true, completedAt: Date.now(), hypothesis: currentTask.verify || '', steps: { ...steps, [Math.max(0, total - 1)]: true } })}>{item.label}</button>
+          ))}
+        </div>
+        <label className="current-task-note">
+          <span>留下事实记录（可选）</span>
+          <input value={currentTask.note || ''} onChange={(e) => commitCurrentTask({ note: e.target.value, hypothesis: currentTask.verify || '' })} placeholder="例如：看了 3 个岗位，其中 2 个明确不限学历" />
+        </label>
+        {currentTask.verdict && <div className="current-task-result-note" role="status">已记录现实结果。下一次判断会参考这条事实，而不是只记住你点过按钮。</div>}
+      </section>
+    );
+  }
+
   // 进入本模块即请求完整路线（一次）；失败保留初版卡片，可手动再点
   useEffect(() => {
     if (!canGen || roadmap || loading || autoTried.current) return;
@@ -211,7 +264,8 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     try {
       // 本轮已填的行动结果 + 历史各轮的行动结果，一起交给后端：
       // 已验证成立的判断不再重复验证，被现实打脸的方向降优先级 / 建议换路。
-      const cur = summarizeActionFeedback(road);
+      const latestRoad = loadRoad(data);
+      const cur = summarizeActionFeedback(latestRoad);
       const hasCur = cur.done > 0 || cur.up.length || cur.down.length || cur.unclear.length || cur.notes.length;
       const feedback = hasCur ? [cur, ...(historyFeedback || [])] : (historyFeedback || []);
       const r = await api('/api/actions', {
@@ -223,6 +277,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
           persona: personaPayload ? personaPayload(persona || {}) : {},
           sources: data.sources || [],
           feedback,
+          currentTask: latestRoad.__current || null,
           manual,
         })),
       });
@@ -258,6 +313,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
           <div className="rmp-fresh">📅 依据 {fmtDate(roadmap.generatedAt)} 检索的真实资料整理；投递/决策前请再核一眼最新 JD。</div>
         )}
         {usedHistoryNote(data)}
+        {currentTaskBridge()}
         {feedbackNote(historyFeedback, summarizeActionFeedback(road))}
         {changeInfo && (
           <div className="action-change">
@@ -404,6 +460,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
       </p>
 
       {usedHistoryNote(data)}
+      {currentTaskBridge()}
       {feedbackNote(historyFeedback, summarizeActionFeedback(road))}
       {confidence === 'low' && (
         <div className="low-confidence-note">

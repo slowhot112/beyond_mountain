@@ -59,7 +59,7 @@ function presentAnswerLabel(q, answer, roleMap) {
   return presentOptionLabel(q, { label: answer.label }, role) || answer.label;
 }
 
-export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, onNeedHelp, initialProgress = null }) {
+export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, onNeedHelp, currentTask = null, initialProgress = null }) {
   if (!quiz || !quiz.length) return null;
   const [answered, setAnswered] = useState(() => initialProgress?.answers || {});
   const [customDraft, setCustomDraft] = useState({});
@@ -151,6 +151,13 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
           <span className="quiz-progress dim"> · 再答 {missing} 题，雾就散透了，我就能给你指路</span>
         )}
       </p>
+      {currentTask?.started && (
+        <div className="current-task-bridge quiz-task-bridge">
+          <span className="current-task-bridge-kicker">从观点墙带来的待验证任务</span>
+          <b>{esc(currentTask.verify || '你刚加入的小验证')}</b>
+          <span>当前完成 {Object.values(currentTask.steps || {}).filter(Boolean).length}/{(currentTask.rows || []).length || 3} 步。自测会帮你判断，这项验证在后续路线里该放多重。</span>
+        </div>
+      )}
       {legacySummary && answeredCount === 0 && (
         <div className="dep-note">
           这是一条旧山径：当时只保存了“偏向与完成度”，没有保存逐题选择。下方可以重新作答；在你选第一题前，原来的路线与摘要不会被覆盖。

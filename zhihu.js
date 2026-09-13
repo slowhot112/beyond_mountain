@@ -1233,7 +1233,7 @@ function normalizeRoadmap(roadmap, roles, persona, topic, sources) {
 }
 
 // 根据自测反馈重做行动地图：把"最信哪一派 / 哪些盲区"喂给模型，生成贴合其辨向的"带终点完整路线"
-export async function generateActions(secret, topic, roles, quizResult, persona = {}, sources = [], feedback = []) {
+export async function generateActions(secret, topic, roles, quizResult, persona = {}, sources = [], feedback = [], currentTask = null) {
   const rs = Array.isArray(roles) ? roles : [];
   const fb = () => {
     const acts = fallbackActions(topic, persona, rs.length, quizBias(quizResult));
@@ -1248,13 +1248,16 @@ export async function generateActions(secret, topic, roles, quizResult, persona 
   const roleLines = rs.map((r) => `- ${r.id}（${r.name || r.form || r.id}）核心立场：${briefText(r.coreArg || r.stance || '', 60)}`).join('\n');
   const quizSummary = `用户自测结果：最偏向 ${dominantId ? roleName(dominantId) : '未明确'}；标了"不确定"的盲区视角：${uncertain.length ? uncertain.map(roleName).join('、') : '无'}。各派被倾向次数：${Object.entries(sideCounts).map(([k, v]) => `${k}:${v}`).join(', ') || '无'}`;
   const personaPrompt = `用户处境：阶段「${persona.identityName || persona.stageName || ''}」${persona.goalNames && persona.goalNames.length ? ` · 目标「${persona.goalNames.join('、')}」` : ''}${persona.city ? ` · 城市「${persona.city}」` : ''}${persona.timePressure ? ` · 时间「${persona.timePressure}」` : ''}。最困惑：${persona.confusion || topic}。`;
+  const currentTaskPrompt = currentTask && currentTask.started
+    ? `\n用户已经从观点墙主动加入一个前置小验证：${briefText(currentTask.verify || '', 120)}。当前完成 ${Object.values(currentTask.steps || {}).filter(Boolean).length}/${Array.isArray(currentTask.rows) ? currentTask.rows.length : 3} 步。请把它当作路线的已选前置任务：在第 1 阶段明确承接或深化，不要另起一个重复任务；尚未回填现实结果时，不得把它写成已证实结论。`
+    : '';
   const prompt = `你是"判断力陪练"，把用户的处境排成一份**带终点的完整行动路线**。
 浓度标准（必须严格对齐用户认可的《转行自救指南（六周计划）》）：按周推进；每周都有「本周目标 → 学什么（输入）→ 做出什么（输出）→ 验收标准」四件事；每周都能交出一样求职时拿得出手的实物；终点是真实的求职动作。绝对不要输出一张张孤立的"验证卡片"或"了解一下 / 看看行情"这种空动作。
 ${personaPrompt}
 第 0 步（最重要）：从用户这次最困惑的问题/目标里认出 ta 想投的**目标岗位**（如"数据分析师""AI产品经理""视频生成岗""内容运营"）。整条路线只围绕这个岗位真实展开：这个岗要什么样的人→你还差什么→做什么作品/证据能证明→怎么投。严禁套用建档行业或"AI产品经理/AIGC/校园AIGC项目"等默认设定，除非用户问的正是它；涉及工具、方法、验收物也只写这个岗位真实在用的。
 已有立场：
 ${roleLines}
-${quizSummary}${buildFeedbackBlock(feedback)}${routeCorpus(sources)}
+${quizSummary}${currentTaskPrompt}${buildFeedbackBlock(feedback)}${routeCorpus(sources)}
 【通用六周骨架（仅作节奏与产出模板，具体每周学什么、做什么作品、用什么工具，全部换成目标岗位真实在用的东西）】
 第1周 岗位与行业认知：收集真实 JD → 产出《岗位地图》+《个人能力差距清单》→ 定下主赛道与备选赛道；
 第2周 一手调研与基本功：做真实用户访谈或拆解真实案例 → 产出《调研/竞品报告》（含流程图与对比表）→ 为后面的作品选题；

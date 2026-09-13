@@ -153,7 +153,7 @@ function PreviewLine({ s, i }) {
   );
 }
 
-export default function ConflictWall({ conflict, persona, onNext, demo = false, sourceStats, roadData = null }) {
+export default function ConflictWall({ conflict, persona, onNext, onTaskChange, demo = false, sourceStats, roadData = null }) {
   const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
   const [taskStarted, setTaskStarted] = useState(() => Boolean(roadData && loadRoad(roadData)?.__current?.started));
   const [taskSteps, setTaskSteps] = useState(() => (roadData && loadRoad(roadData)?.__current?.steps) || {});
@@ -192,10 +192,17 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
     { label: '去做', text: task.action || task.do || task.steps || fallbackTask.action },
     { label: '带回结果', text: task.done || task.output || task.acceptance || fallbackTask.done },
   ];
+  function persistCurrentTask(patch) {
+    if (!roadData) return;
+    const previous = loadRoad(roadData)?.__current || {};
+    const next = { ...previous, verify: taskVerify, rows: taskRows, ...patch };
+    saveRoad(roadData, '__current', next);
+    onTaskChange?.(next);
+  }
   function toggleTaskStep(index) {
     const next = { ...taskSteps, [index]: !taskSteps[index] };
     setTaskSteps(next);
-    if (roadData) saveRoad(roadData, '__current', { steps: next });
+    persistCurrentTask({ steps: next });
   }
   async function copyTask() {
     const text = `验证目标：${taskVerify}\n${taskRows.map((row, i) => `${i + 1}. ${row.label}：${row.text}`).join('\n')}`;
@@ -307,16 +314,23 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
         </ol>
         <div className="current-task-actions">
           <button type="button" className="primary" onClick={() => {
+            if (taskStarted) {
+              // 兼容此前只保存 started 的旧记录：继续时补齐任务内容，再交给后续页面。
+              persistCurrentTask({ started: true, steps: taskSteps });
+              onNext?.();
+              return;
+            }
             setTaskStarted(true);
-            if (roadData) saveRoad(roadData, '__current', { started: true, startedAt: Date.now() });
-          }} disabled={taskStarted}>
-            {taskStarted ? '已加入待验证任务' : '加入我的待验证任务'}
+            persistCurrentTask({ started: true, startedAt: Date.now(), steps: taskSteps });
+          }}>
+            {taskStarted ? '继续辨向，把任务带到下一步 →' : '加入我的待验证任务'}
           </button>
           <button type="button" className="chip ghost" onClick={copyTask}>{copyState}</button>
-          <span className="current-task-status" role="status" aria-live="polite">{Object.values(taskSteps).filter(Boolean).length}/{taskRows.length} 步已完成{taskStarted ? ' · 进度已保存在本机' : ''}</span>
+          <span className="current-task-status" role="status" aria-live="polite">{Object.values(taskSteps).filter(Boolean).length}/{taskRows.length} 步已完成{taskStarted ? ' · 已加入，辨向与行动路线会接着显示' : ''}</span>
         </div>
+        {taskStarted && <p className="current-task-next-note">加入不等于完成。等你带回真实结果，它才会影响下一次判断。</p>}
       </section>
-      {onNext && (
+      {onNext && !taskStarted && (
         <div className="wall-next">
           <button type="button" className="chip primary" onClick={onNext}>
             继续做辨向自测（可选） →

@@ -1,5 +1,5 @@
 import React from 'react';
-import { esc, diffRouteChange } from '../lib.js';
+import { esc, diffRouteChange, loadRoad } from '../lib.js';
 
 // 「我的山径」：有历史时展示成长山径（时间线节点），无历史也露出「暂无记录」引导，
 // 让"长期陪伴"的概念随时看得见。知识库对话已统一由右下角常驻的刘看山承担。
@@ -64,6 +64,8 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
             const ch = diffRouteChange(older, r.quiz, (r.data && r.data.conflict && r.data.conflict.roles) || []);
             const fb = r.actionFeedback || null;
             const hasFb = fb && (fb.done || (fb.up && fb.up.length) || (fb.down && fb.down.length) || (fb.unclear && fb.unclear.length) || (fb.notes && fb.notes.length));
+            const currentTask = r.currentTask || (r.data ? loadRoad(r.data)?.__current : null);
+            const taskStepCount = Object.values(currentTask?.steps || {}).filter(Boolean).length;
             return (
               <button key={r.id} className={`map-node ${hasFb ? 'has-fb' : 'pending'}`} onClick={() => onOpen && onOpen(r)}>
                 <span className="map-dot" aria-hidden="true" />
@@ -74,6 +76,9 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
                     {r.fallback && <em className="record-flag" title="这次知乎直答没连上，展示的是原样摆着的真实脚印，没经过二次整理"> · 原始山径</em>}
                     {!r.fallback && r.lowConfidence && <em className="record-flag" title="知乎上直接聊这个的不多，内容由相近主题的真实讨论垫上"> · 素材偏少</em>}
                   </div>
+                  {currentTask?.started && !currentTask?.verdict && (
+                    <div className="map-current-task">待验证 · 已完成 {taskStepCount}/{(currentTask.rows || []).length || 3} 步</div>
+                  )}
                   {/* 上一次做了什么、结果如何（行动结果反哺后才有） */}
                   {hasFb && (
                     <div className="map-feedback">

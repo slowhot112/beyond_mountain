@@ -342,10 +342,11 @@ const server = createServer(async (req, res) => {
       const sources = Array.isArray(body.sources) ? body.sources : [];
       // 上一轮（及历史各轮）行动的现实结果：已证实的不再重复验证，被打脸的降优先级/建议换路
       const feedback = Array.isArray(body.feedback) ? body.feedback.slice(0, 5) : [];
+      const currentTask = body.currentTask && body.currentTask.started ? body.currentTask : null;
       if (!topic || !roles.length) return sendJson(res, { ok: false, code: 'MISSING', message: '缺少 topic 或 roles' }, 400);
       const live = await reserveDaily('ai', 2); // 完整路线底层最多两次直答尝试
       const requestSecret = live ? ACTIVE_SECRET : '';
-      const r = await zhihu.generateActions(requestSecret, topic, roles, quizResult, persona, sources, feedback);
+      const r = await zhihu.generateActions(requestSecret, topic, roles, quizResult, persona, sources, feedback, currentTask);
       if (!live && ACTIVE_SECRET) { r.quotaFallback = true; r.quotaCode = 'DAILY_LIMIT_REACHED'; }
       return sendJson(res, { ok: true, data: r });
     }

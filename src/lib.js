@@ -416,6 +416,18 @@ export function updateRecordRoadmap(id, roadmap) {
   } catch {}
 }
 
+// 观点墙加入的“小验证”也写回对应山径。它只是待办上下文；只有用户回填现实结果后，
+// 才会通过 actionFeedback 进入下一次判断，避免把“加入了”误当成“验证过了”。
+export function updateRecordCurrentTask(id, currentTask) {
+  try {
+    const list = loadRecords();
+    const i = list.findIndex((r) => r.id === id);
+    if (i < 0 || !currentTask) return;
+    list[i] = normalizeRecord({ ...list[i], currentTask });
+    localStorage.setItem(RECORDS_KEY, JSON.stringify(list));
+  } catch {}
+}
+
 // ---------- 界面联动：自测 → 行动地图 → 下次炼金（纯函数，可脱离浏览器回归测试） ----------
 // 生成「完整路线」的答题门槛：至少答满 4 题（题目不足 4 道时按实际题数算）
 export const ROUTE_MIN_ANSWERED = 4;
@@ -464,6 +476,7 @@ export function summarizeActionFeedback(road) {
   Object.entries(st).forEach(([k, v]) => {
     if (!v || typeof v !== 'object') return;
     if (String(k).startsWith('g')) return; // 毕业检查表（g0/g1…）不计入任务反馈
+    if (k === '__current' && !v.verdict) return; // 前置小验证未回填现实判断前，只是待办，不是结论
     if (v.done) out.done += 1;
     const hyp = v.hypothesis || '';
     if (v.verdict === 'up') out.up.push(hyp);
@@ -481,7 +494,7 @@ export function collectActionFeedback(records, excludeId) {
   return list.slice(0, 3).map((r) => ({ topic: r.topic || '', ts: r.ts || 0, ...(r.actionFeedback || {}) }));
 }
 // 打包 /api/actions 请求体：自测结果 + 处境 + 真实来源 + 历史行动结果，一个都不能少
-export function buildActionsPayload({ data, quizResult, persona, sources, feedback, manual }) {
+export function buildActionsPayload({ data, quizResult, persona, sources, feedback, currentTask, manual }) {
   return {
     topic: (data && data.topic) || '',
     roles: (data && data.conflict && data.conflict.roles) || [],
@@ -489,6 +502,7 @@ export function buildActionsPayload({ data, quizResult, persona, sources, feedba
     persona: persona || {},
     sources: Array.isArray(sources) ? sources.slice(0, 8) : [],
     feedback: Array.isArray(feedback) ? feedback : [],
+    currentTask: currentTask && currentTask.started ? currentTask : null,
     auto: !manual,
   };
 }

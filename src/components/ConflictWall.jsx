@@ -156,6 +156,8 @@ function PreviewLine({ s, i }) {
 export default function ConflictWall({ conflict, persona, onNext, demo = false, sourceStats, roadData = null }) {
   const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
   const [taskStarted, setTaskStarted] = useState(() => Boolean(roadData && loadRoad(roadData)?.__current?.started));
+  const [taskSteps, setTaskSteps] = useState(() => (roadData && loadRoad(roadData)?.__current?.steps) || {});
+  const [copyState, setCopyState] = useState('复制任务');
   if (!conflict) return null;
 
   const firstRole = conflict.roles?.[0];
@@ -185,6 +187,27 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
   const taskVerify = taskIsEvidenceOnly
     ? `当前没有可核验原文，先取到 1 条能打开的原始资料，再判断“${(task.verify || fallbackTask.verify).slice(0, 48)}”是否成立。`
     : (task.verify || task.goal || fallbackTask.verify);
+  const taskRows = [
+    { label: '准备', text: task.input || task.inputs || fallbackTask.input },
+    { label: '去做', text: task.action || task.do || task.steps || fallbackTask.action },
+    { label: '带回结果', text: task.done || task.output || task.acceptance || fallbackTask.done },
+  ];
+  function toggleTaskStep(index) {
+    const next = { ...taskSteps, [index]: !taskSteps[index] };
+    setTaskSteps(next);
+    if (roadData) saveRoad(roadData, '__current', { steps: next });
+  }
+  async function copyTask() {
+    const text = `验证目标：${taskVerify}\n${taskRows.map((row, i) => `${i + 1}. ${row.label}：${row.text}`).join('\n')}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState('已复制');
+      window.setTimeout(() => setCopyState('复制任务'), 1600);
+    } catch {
+      setCopyState('复制失败');
+      window.setTimeout(() => setCopyState('复制任务'), 1600);
+    }
+  }
 
   function toggle(i) {
     setOpenIdx((cur) => (cur === i ? null : i)); // 手风琴：展开一个，其他收起
@@ -272,9 +295,15 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
           <p>{esc(taskVerify)}</p>
         </div>
         <ol className="current-task-steps">
-          <li><span>1</span><div><b>准备</b><p>{esc(task.input || task.inputs || fallbackTask.input)}</p></div></li>
-          <li><span>2</span><div><b>去做</b><p>{esc(task.action || task.do || task.steps || fallbackTask.action)}</p></div></li>
-          <li><span>3</span><div><b>带回这个结果</b><p>{esc(task.done || task.output || task.acceptance || fallbackTask.done)}</p></div></li>
+          {taskRows.map((row, index) => (
+            <li key={row.label} className={taskSteps[index] ? 'done' : ''}>
+              <label className="current-task-step-check">
+                <input type="checkbox" checked={!!taskSteps[index]} onChange={() => toggleTaskStep(index)} />
+                <span aria-hidden="true">{taskSteps[index] ? '✓' : index + 1}</span>
+                <div><b>{row.label}</b><p>{esc(row.text)}</p></div>
+              </label>
+            </li>
+          ))}
         </ol>
         <div className="current-task-actions">
           <button type="button" className="primary" onClick={() => {
@@ -283,7 +312,8 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
           }} disabled={taskStarted}>
             {taskStarted ? '已加入待验证任务' : '加入我的待验证任务'}
           </button>
-          {taskStarted && <span className="current-task-status">已保存。完成后回来记录结果，下一次判断会参考它。</span>}
+          <button type="button" className="chip ghost" onClick={copyTask}>{copyState}</button>
+          <span className="current-task-status" role="status" aria-live="polite">{Object.values(taskSteps).filter(Boolean).length}/{taskRows.length} 步已完成{taskStarted ? ' · 进度已保存在本机' : ''}</span>
         </div>
       </section>
       {onNext && (

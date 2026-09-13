@@ -1077,9 +1077,19 @@ a { color: var(--zhihu); }
 .current-task-focus span { display: block; margin-bottom: 5px; color: var(--zhihu-ink); font-size: 12px; font-weight: 800; }
 .current-task-focus p { margin: 0; color: var(--ink); font-size: 15px; line-height: 1.65; font-weight: 600; }
 .current-task-steps { display: grid; gap: 0; margin: 14px 0 0; padding: 0; list-style: none; }
-.current-task-steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.current-task-steps li { border-bottom: 1px solid var(--line); transition: background-color 180ms cubic-bezier(.22, 1, .36, 1); }
 .current-task-steps li:last-child { border-bottom: 0; }
-.current-task-steps li > span { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--zhihu-ink); background: var(--zhihu-soft); font-size: 12px; font-weight: 800; }
+.current-task-step-check { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 10px; min-height: 48px; padding: 11px 4px; border-radius: 8px; cursor: pointer; }
+.current-task-step-check:hover { background: color-mix(in srgb, var(--zhihu-soft) 48%, transparent); }
+.current-task-step-check input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.current-task-step-check > span { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--zhihu) 22%, transparent); border-radius: 50%; color: var(--zhihu-ink); background: var(--zhihu-soft); font-size: 12px; font-weight: 800; transition: color 180ms cubic-bezier(.22, 1, .36, 1), background-color 180ms cubic-bezier(.22, 1, .36, 1), transform 180ms cubic-bezier(.22, 1, .36, 1); }
+.current-task-step-check input:focus-visible + span { outline: 3px solid color-mix(in srgb, var(--zhihu) 72%, white); outline-offset: 3px; }
+.current-task-step-check:active > span { transform: scale(.9); }
+.current-task-steps li.done { background: color-mix(in srgb, var(--green) 5%, transparent); }
+.current-task-steps li.done > div b, .current-task-steps li.done > div p { color: var(--muted); text-decoration: line-through; }
+.current-task-steps li.done .current-task-step-check > span { color: #f8fbfa; background: var(--green); transform: scale(1.04); }
+.current-task-steps li.done .current-task-step-check > div b, .current-task-steps li.done .current-task-step-check > div p { color: var(--muted); }
+.current-task-steps li.done .current-task-step-check > div p { text-decoration: line-through; text-decoration-thickness: 1px; }
 .current-task-steps b { color: var(--ink); font-size: 13px; }
 .current-task-steps p { margin: 2px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.65; }
 .current-task-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }

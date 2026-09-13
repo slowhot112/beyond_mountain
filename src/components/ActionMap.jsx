@@ -152,9 +152,9 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     const top = entries[0] || null;
     const blinds = (quizResult.uncertainSides || [])
       .filter((s) => s !== 'custom')
-      .map((s) => roleMap[s]?.stance || roleMap[s]?.coreArg || roleMap[s]?.name || s)
+      .map((s) => String(roleMap[s]?.stance || roleMap[s]?.coreArg || roleMap[s]?.name || s).replace(/^该答主(认为|分享)：?\s*/, '').trim())
       .filter(Boolean);
-    const rawTopName = top ? (roleMap[top[0]]?.stance || roleMap[top[0]]?.coreArg || roleMap[top[0]]?.name || top[0]) : null;
+    const rawTopName = top ? String(roleMap[top[0]]?.stance || roleMap[top[0]]?.coreArg || roleMap[top[0]]?.name || top[0]).replace(/^该答主(认为|分享)：?\s*/, '').trim() : null;
     return {
       topName: rawTopName === 'custom' ? '你自定义的立场' : rawTopName,
       topN: top ? top[1] : 0,
@@ -169,13 +169,13 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     const curDomId = quizResult.dominant?.[0];
     if (!curDomId) return null;
     const curRole = roleMap[curDomId] || {};
-    const curName = curRole.stance || curRole.coreArg || curRole.name || curDomId;
+    const curName = String(curRole.stance || curRole.coreArg || curRole.name || curDomId).replace(/^该答主(认为|分享)：?\s*/, '').trim();
     const prevQuiz = prevRecord.quiz || {};
     const prevDomId = Array.isArray(prevQuiz.dominant) ? prevQuiz.dominant[0] : (prevQuiz.dominant?.top?.[0]);
     if (!prevDomId) return null;
     const prevRoles = prevRecord.data?.conflict?.roles || [];
     const prevRole = prevRoles.find((r) => r.id === prevDomId) || {};
-    const prevName = prevRole.stance || prevRole.coreArg || prevRole.name || prevDomId;
+    const prevName = String(prevRole.stance || prevRole.coreArg || prevRole.name || prevDomId).replace(/^该答主(认为|分享)：?\s*/, '').trim();
     const ts = prevRecord.ts ? new Date(prevRecord.ts) : null;
     const date = ts ? `${ts.getMonth() + 1}/${ts.getDate()}` : '';
     return { curName, prevName, date, topic: prevRecord.topic, changed: curName !== prevName };

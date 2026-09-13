@@ -189,17 +189,21 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                   const label = presentOptionLabel(quiz[i], opt, role);
                   const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
                   return (
-                    <button
-                      key={j}
-                      type="button"
-                      className={`quiz-opt${isChosen ? ' chosen' : ''}`}
-                      style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
-                      onClick={() => choose(i, opt)}
-                      title={role ? '来自真实讨论，点击后查看来源' : ''}
-                    >
-                      {esc(label)}
-                      {role && <span className="quiz-opt-side">来自真实讨论 · 点击后查看来源</span>}
-                    </button>
+                    <div key={j} className="quiz-opt-wrap">
+                      <button
+                        type="button"
+                        className={`quiz-opt${isChosen ? ' chosen' : ''}`}
+                        style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
+                        onClick={() => choose(i, opt)}
+                      >
+                        {esc(label)}
+                      </button>
+                      {role?.sourceItems?.[0]?.url && (
+                        <a className="quiz-source-link" href={role.sourceItems[0].url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                          查看这条观点的原文 ↗
+                        </a>
+                      )}
+                    </div>
                   );
                 })}
               </div>

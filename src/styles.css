@@ -897,6 +897,9 @@ a { color: var(--zhihu); }
 .quiz-opts { display: grid; gap: 8px; }
 .quiz-opts-main { grid-template-columns: 1fr; }
 .quiz-opt { width: 100%; min-height: 58px; justify-content: center; text-align: left; }
+.quiz-opt-wrap { min-width: 0; }
+.quiz-source-link { display: inline-flex; margin: 5px 0 0 4px; color: var(--zhihu); font-size: 12px; text-decoration: none; }
+.quiz-source-link:hover { text-decoration: underline; }
 .quiz-opts-secondary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .quiz-opt-secondary { min-height: 36px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
 .quiz-opt-secondary:hover, .quiz-opt-secondary.chosen { border-color: var(--zhihu); color: var(--zhihu); background: var(--zhihu-soft); }

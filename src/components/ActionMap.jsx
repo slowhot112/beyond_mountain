@@ -145,16 +145,16 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     return m;
   }, [data]);
 
-  // 与辨向自测的衔接：最信派 / 盲区
+  // 与辨向自测的衔接：本轮较多选择对应的观点 / 不确定项
   const link = useMemo(() => {
     if (!quizResult || !quizResult.answeredCount) return null;
     const entries = Object.entries(quizResult.sideCounts || {}).sort((a, b) => b[1] - a[1]);
     const top = entries[0] || null;
     const blinds = (quizResult.uncertainSides || [])
       .filter((s) => s !== 'custom')
-      .map((s) => roleMap[s]?.name || s)
+      .map((s) => roleMap[s]?.stance || roleMap[s]?.coreArg || roleMap[s]?.name || s)
       .filter(Boolean);
-    const rawTopName = top ? (roleMap[top[0]]?.name || top[0]) : null;
+    const rawTopName = top ? (roleMap[top[0]]?.stance || roleMap[top[0]]?.coreArg || roleMap[top[0]]?.name || top[0]) : null;
     return {
       topName: rawTopName === 'custom' ? '你自定义的立场' : rawTopName,
       topN: top ? top[1] : 0,
@@ -168,12 +168,14 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
     if (!prevRecord || !quizResult?.answeredCount) return null;
     const curDomId = quizResult.dominant?.[0];
     if (!curDomId) return null;
-    const curName = roleMap[curDomId]?.name || curDomId;
+    const curRole = roleMap[curDomId] || {};
+    const curName = curRole.stance || curRole.coreArg || curRole.name || curDomId;
     const prevQuiz = prevRecord.quiz || {};
     const prevDomId = Array.isArray(prevQuiz.dominant) ? prevQuiz.dominant[0] : (prevQuiz.dominant?.top?.[0]);
     if (!prevDomId) return null;
     const prevRoles = prevRecord.data?.conflict?.roles || [];
-    const prevName = prevRoles.find((r) => r.id === prevDomId)?.name || prevDomId;
+    const prevRole = prevRoles.find((r) => r.id === prevDomId) || {};
+    const prevName = prevRole.stance || prevRole.coreArg || prevRole.name || prevDomId;
     const ts = prevRecord.ts ? new Date(prevRecord.ts) : null;
     const date = ts ? `${ts.getMonth() + 1}/${ts.getDate()}` : '';
     return { curName, prevName, date, topic: prevRecord.topic, changed: curName !== prevName };
@@ -260,8 +262,8 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
         {changeInfo && (
           <div className="action-change">
             {changeInfo.changed
-              ? <>相比上次，你最信的立场从「<b>{esc(changeInfo.prevName)}</b>」变到了「<b>{esc(changeInfo.curName)}</b>」——这版路线会重点验证你现在最信的这一派。</>
-              : <>和上次一样，你最信的仍是「<b>{esc(changeInfo.curName)}</b>」，这版路线重点验证它是否真站得住。</>}
+              ? <>两轮答题出现了不同倾向：上一轮更接近「<b>{esc(changeInfo.prevName)}</b>」，本轮更接近「<b>{esc(changeInfo.curName)}</b>」。问题和处境不同也会造成变化，这不代表你更信任某位答主；路线只把它当作一个待验证的新分歧。</>
+              : <>本轮较多选择仍接近「<b>{esc(changeInfo.curName)}</b>」。这只反映当前题目下的答题倾向，不代表你认同某位答主；路线会继续验证它成立的前提。</>}
           </div>
         )}
 
@@ -279,7 +281,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
           <div className="action-link">
             接上你的辨向（{link.answered} 题）：
             {link.topName
-              ? <>你更偏向 <b>{esc(link.topName)}</b>——验证这一派的任务已排在前。</>
+              ? <>本轮较多选择接近 <b>{esc(link.topName)}</b>，验证这一观点前提的任务已排在前。</>
               : <>多数题标了「不确定」——补盲区、拿一手事实的任务已排在前。</>}
             {link.blinds.length > 0 && <span> 盲区视角：<b>{esc(link.blinds.join('、'))}</b>。</span>}
           </div>
@@ -412,8 +414,8 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
       {changeInfo && (
         <div className="action-change">
           {changeInfo.changed
-            ? <>相比上次，你最信的立场从「<b>{esc(changeInfo.prevName)}</b>」变到了「<b>{esc(changeInfo.curName)}</b>」。</>
-            : <>和上次一样，你最信的仍是「<b>{esc(changeInfo.curName)}</b>」，这次重点验证它是否真站得住。</>}
+            ? <>两轮答题出现了不同倾向：上一轮更接近「<b>{esc(changeInfo.prevName)}</b>」，本轮更接近「<b>{esc(changeInfo.curName)}</b>」。这可能来自问题和处境变化，只作为下一步验证线索。</>
+            : <>本轮较多选择仍接近「<b>{esc(changeInfo.curName)}</b>」。这只是当前题目下的倾向，下一步会验证它是否适合你的处境。</>}
         </div>
       )}
 
@@ -441,7 +443,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
                 <input type="checkbox" readOnly checked={!!done[i]} />
                 <div>
                   {a.when && <span className="action-when">⏱ {esc(a.when)}</span>}
-                  {dominantId && a.role === dominantId && <span className="action-tag">先验证你最信的「{esc(roleMap[dominantId]?.name || dominantId)}」</span>}
+                  {dominantId && a.role === dominantId && <span className="action-tag">优先验证本轮较多选择对应的观点</span>}
                   {blindIds.includes(a.role) && <span className="action-tag">补你标了「不确定」的视角</span>}
                   {a.hypothesis && <div className="action-hypo">🔍 要验证：{esc(a.hypothesis)}</div>}
                   {a.where && <div className="action-where">📍 往哪儿走：{esc(a.where)}</div>}

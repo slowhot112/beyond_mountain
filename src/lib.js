@@ -510,13 +510,17 @@ export function buildAlchemyPayload({ mode, topic, persona, queries, records }) 
     })),
   };
 }
-// 与上一次相比，判断/路线发生了什么变化（历史页与行动地图共用）
+// 与上一次相比，答题倾向有什么变化（历史页与行动地图共用）。
+// 优先展示观点摘要，绝不把答主姓名包装成用户的“信任对象”。
 export function diffRouteChange(prevRec, curQuiz, curRoles) {
   if (!prevRec) return null;
   const curDomId = Array.isArray(curQuiz && curQuiz.dominant) ? curQuiz.dominant[0] : null;
   const prevQuiz = prevRec.quiz || {};
   const prevDomId = Array.isArray(prevQuiz.dominant) ? prevQuiz.dominant[0] : null;
-  const nameOf = (roles, id) => ((roles || []).find((r) => r.id === id) || {}).name || id;
+  const nameOf = (roles, id) => {
+    const role = (roles || []).find((r) => r.id === id) || {};
+    return role.stance || role.coreArg || role.name || id;
+  };
   const ts = prevRec.ts ? new Date(prevRec.ts) : null;
   return {
     topic: prevRec.topic || '',

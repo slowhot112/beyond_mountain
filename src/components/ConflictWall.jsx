@@ -258,22 +258,26 @@ export default function ConflictWall({ conflict, persona, onNext, demo = false, 
         ))}
       </div>
       <section className={`current-task-card${taskStarted ? ' started' : ''}`} aria-labelledby="current-task-title">
-        <div className="current-task-kicker">02 · {taskIsEvidenceOnly ? '先把假设交给现实' : '把观点交给现实'}</div>
-        <h3 id="current-task-title">{taskIsEvidenceOnly ? '先取一条可核验证据' : '先验证一个小问题'}</h3>
-        <div className="current-task-grid">
-          <div className="current-task-item current-task-focus"><b>{taskIsEvidenceOnly ? '先取证什么' : '要验证什么'}</b><p>{esc(taskVerify)}</p></div>
-          <div className="current-task-item"><b>需要什么输入</b><p>{esc(task.input || task.inputs || fallbackTask.input)}</p></div>
-          <div className="current-task-item current-task-focus"><b>现在做什么</b><p>{esc(task.action || task.do || task.steps || fallbackTask.action)}</p></div>
-          <div className="current-task-item"><b>完成标准</b><p>{esc(task.done || task.output || task.acceptance || fallbackTask.done)}</p></div>
+        <div className="current-task-kicker">02 · 用现实缩小分歧</div>
+        <h3 id="current-task-title">先做一个小验证，再决定要不要走更长的路</h3>
+        <p className="current-task-intro">这不是行动路线，也不会替你投递或联系任何人。它只用一个短时间能完成的小任务，检查刚才看到的观点是否适合你的处境。</p>
+        <div className="current-task-focus">
+          <span>{taskIsEvidenceOnly ? '这次先取证' : '这次只验证一件事'}</span>
+          <p>{esc(taskVerify)}</p>
         </div>
+        <ol className="current-task-steps">
+          <li><span>1</span><div><b>准备</b><p>{esc(task.input || task.inputs || fallbackTask.input)}</p></div></li>
+          <li><span>2</span><div><b>去做</b><p>{esc(task.action || task.do || task.steps || fallbackTask.action)}</p></div></li>
+          <li><span>3</span><div><b>带回这个结果</b><p>{esc(task.done || task.output || task.acceptance || fallbackTask.done)}</p></div></li>
+        </ol>
         <div className="current-task-actions">
           <button type="button" className="primary" onClick={() => {
             setTaskStarted(true);
             if (roadData) saveRoad(roadData, '__current', { started: true, startedAt: Date.now() });
           }} disabled={taskStarted}>
-            {taskStarted ? '已开始这一步' : '开始这一步'}
+            {taskStarted ? '已加入待验证任务' : '加入我的待验证任务'}
           </button>
-          {taskStarted && <span className="current-task-status">完成后回来记录结果，系统不会替你提交或联系任何人。</span>}
+          {taskStarted && <span className="current-task-status">已保存。完成后回来记录结果，下一次判断会参考它。</span>}
         </div>
       </section>
       {onNext && (

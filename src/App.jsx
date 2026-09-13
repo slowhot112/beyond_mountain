@@ -89,13 +89,17 @@ export default function App() {
     setPrefetchedActions(null); // 新一轮分析，清空旧的预生成结果
     setVisitedResults([]);
     setAlchemyLoading(true);
-    const steps = ['正在知乎山头拾脚印…', '正在全网找对照脚印…', '正在把不同脚印摆成对照…', '正在给你画脚下验证路线…'];
+    const steps = ['寻找知乎真实讨论', '补充全网对照资料', '比对观点成立的前提', '整理成可阅读的结果'];
     let stepIdx = 0;
     setAlchemyStep(steps[0]);
     const stepTimer = setInterval(() => {
-      stepIdx = (stepIdx + 1) % steps.length;
+      if (stepIdx >= steps.length - 1) {
+        clearInterval(stepTimer);
+        return;
+      }
+      stepIdx += 1;
       setAlchemyStep(steps[stepIdx]);
-    }, 2200);
+    }, 7000);
     const persona = personaPayload(card);
     const topicStr = card.confusion.trim();
     setTopic(topicStr);
@@ -460,6 +464,12 @@ export default function App() {
                   onProgress={setQuizResult}
                   initialProgress={quizResult}
                   onGotoActions={() => go('result3')}
+                  onNeedHelp={({ index, scenario }) => setGuidePrompt({
+                    id: `quiz-help:${index}:${Date.now()}`,
+                    type: 'quiz-help',
+                    index,
+                    scenario,
+                  })}
                 />
               </>
             )}

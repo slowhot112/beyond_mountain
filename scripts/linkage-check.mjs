@@ -137,11 +137,11 @@ const prevRec = {
   actionFeedback: { done: 2, up: ['x'], down: [], unclear: [], notes: [] },
 };
 const change = lib.diffRouteChange(prevRec, { dominant: ['r2'] }, [{ id: 'r2', name: '谋略派' }]);
-check('判断变了：能算出入上次信哪派、这次信哪派',
+check('两轮答题倾向不同：能识别前后变化',
   change && change.changed === true && change.prevName === '实干派' && change.curName === '谋略派',
   change ? `${change.prevName} → ${change.curName}` : '');
 const same = lib.diffRouteChange(prevRec, { dominant: ['r1'] }, [{ id: 'r1', name: '实干派' }]);
-check('判断没变：也能显示「仍是最信那一派」', same && same.changed === false && same.curName === '实干派');
+check('两轮答题倾向一致：能识别没有变化', same && same.changed === false && same.curName === '实干派');
 check('历史条目能带上上一轮行动结果（历史页显示"上次做了什么/结果如何"）',
   change && change.feedback && change.feedback.done === 2);
 

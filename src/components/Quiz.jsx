@@ -37,10 +37,11 @@ function LongText({ text, max = 140 }) {
 function sideDisplayName(roleMap, side) {
   if (!side) return '';
   if (side === CUSTOM_SIDE) return '你自定义的立场';
-  return roleMap[side]?.name || side;
+  const role = roleMap[side] || {};
+  return role.stance || role.coreArg || role.name || side;
 }
 
-export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, initialProgress = null }) {
+export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, onNeedHelp, initialProgress = null }) {
   if (!quiz || !quiz.length) return null;
   const [answered, setAnswered] = useState(() => initialProgress?.answers || {});
   const [customDraft, setCustomDraft] = useState({});
@@ -99,6 +100,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
     }
     setAnswered((a) => ({ ...a, [i]: { ...a[i], label, side } }));
     onAnswer && onAnswer(i, label, side);
+    if (!side && /不确定|没想清楚|没头绪/.test(label)) onNeedHelp?.({ index: i, scenario: quiz[i]?.scenario || '' });
   }
 
   function confirmCustom(i) {
@@ -111,6 +113,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
 
   function setConfidence(i, c) {
     setAnswered((a) => ({ ...a, [i]: { ...a[i], confidence: c } }));
+    if (c === 'low') onNeedHelp?.({ index: i, scenario: quiz[i]?.scenario || '' });
   }
 
   // 这道题主要对应哪一派（观点墙 → 自测）：让每道题都挂在真实角色上，而不是通用问卷
@@ -157,8 +160,11 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
             </div>
             <div className="quiz-answer">
               <div className="quiz-answer-label">选择一个最接近你的回答</div>
-              <div className="quiz-opts">
-                {displayOptions.map((opt, j) => {
+              <div className="quiz-opts quiz-opts-main">
+                {displayOptions.filter((opt) => {
+                  const side = typeof opt === 'string' ? null : opt.side;
+                  return side && side !== CUSTOM_SIDE;
+                }).map((opt, j) => {
                   const label = typeof opt === 'string' ? opt : opt.label;
                   const side = typeof opt === 'string' ? null : opt.side;
                   const role = side && side !== CUSTOM_SIDE ? roleMap[side] : null;
@@ -176,6 +182,17 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                       {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
                     </button>
                   );
+                })}
+              </div>
+              <div className="quiz-opts-secondary" aria-label="还没有合适答案">
+                {displayOptions.filter((opt) => {
+                  const side = typeof opt === 'string' ? null : opt.side;
+                  return !side || side === CUSTOM_SIDE;
+                }).map((opt, j) => {
+                  const label = typeof opt === 'string' ? opt : opt.label;
+                  const side = typeof opt === 'string' ? null : opt.side;
+                  const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
+                  return <button key={j} type="button" className={`quiz-opt-secondary${isChosen ? ' chosen' : ''}`} onClick={() => choose(i, opt)}>{esc(label)}</button>;
                 })}
               </div>
               {isEditingCustom && (
@@ -211,7 +228,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                 {a.confidence && (
                   <div className="quiz-conf-note">
                     {a.confidence === 'low'
-                      ? '不确定也没关系——这恰好是一片还罩着雾的岔口，正是你该去摸清的地方。'
+                      ? '不确定也没关系。刘看山会帮你把这题拆小，你也可以先保留这个答案。'
                       : a.confidence === 'high'
                         ? '很确定？回头看解析时，专门找「和你相反」的那派论据，检验自己是不是只信了一边。'
                         : '一般确定说明你看到了两边道理，继续看解析会帮你把模糊处坐实。'}
@@ -257,12 +274,12 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
               : <>再答 <b>{missing}</b> 题，我才能给你画出下山的路（下面这版只是雾里看山，别拿它下结论）。</>}
           </div>
           {dominant && (
-            <div>你目前的偏向：<b>{esc(sideDisplayName(roleMap, dominant[0]))}</b>（{dominant[1]}/{total} 题）。三派并非非此即彼，建议补另外两派视角。</div>
+            <div>在本轮题目中，你有 <b>{dominant[1]}/{total}</b> 个选择更接近「{esc(sideDisplayName(roleMap, dominant[0]))}」。这只是当前问题下的答题倾向，建议再看其他观点的成立前提。</div>
           )}
           {uncertainSides.length > 0 ? (
             <div className="quiz-blind">
-              还没看清的岔口：你在 <b>{uncertainSides.map((s) => esc(sideDisplayName(roleMap, s))).join('、')}</b> 上选择了「不确定」。
-              这些就是你现在最该补的判断维度——重看对应山头的「最硬论据」和「前提」，比刷题更能长判断力。
+              你对这些观点还不确定：<b>{uncertainSides.map((s) => esc(sideDisplayName(roleMap, s))).join('、')}</b>。
+              可以重看对应观点的论据与成立前提，也可以让刘看山帮你把问题拆小。
             </div>
           ) : (
             <div>你对所有题都给出了确定程度。真正的高手不只站对边，更知道自己哪里可能错——回头把每题「相反立场」的论据也读一遍。</div>

@@ -83,12 +83,12 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
                       ) : null}
                     </div>
                   )}
-                  {/* 这次路线相对上次有什么变化 */}
+                  {/* 只描述有限样本下的答题倾向，不推断用户信任某位答主 */}
                   {ch && (ch.changed || (ch.prevName && ch.curName)) && (
                     <div className="map-change">
                       {ch.changed
-                        ? <>相比 {ch.date || '上次'}，你最信的从「{esc(ch.prevName)}」挪到了「{esc(ch.curName)}」——这轮的路已按你新的判断重画。</>
-                        : <>和 {ch.date || '上次'} 一样，你最信的还是「{esc(ch.curName || ch.prevName)}」，这轮重点试它到底站不站得住。</>}
+                        ? <>两轮答题出现了不同倾向：{ch.date || '上一轮'}更接近「{esc(ch.prevName)}」，本轮更接近「{esc(ch.curName)}」。问题和处境可能不同，这条变化只作为后续验证线索。</>
+                        : <>本轮较多选择仍接近「{esc(ch.curName || ch.prevName)}」。这只反映当时题目下的倾向，不代表你认同某位答主。</>}
                     </div>
                   )}
                 </div>

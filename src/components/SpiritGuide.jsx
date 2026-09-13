@@ -84,6 +84,14 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
     return () => window.clearTimeout(delay);
   }, [prompt, showBubble, step]);
 
+  useEffect(() => {
+    if (step !== 'result2' || !prompt?.id || prompt.type !== 'quiz-help') return;
+    const key = `prompt:${prompt.id}`;
+    if (firedRef.current[key]) return;
+    firedRef.current[key] = true;
+    showBubble({ kind: 'quiz-help', text: '还没头绪也正常。要不要把这题拆成两个更容易判断的小问题？', scenario: prompt.scenario }, 12000);
+  }, [prompt, showBubble, step]);
+
   // 打开时切到打招呼动画，关闭回到待机
   useEffect(() => {
     if (open) {
@@ -107,6 +115,13 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
       window.setTimeout(() => details.classList.remove('guide-highlight'), 1400);
     }
     hideBubble();
+  }
+
+  function openQuizHelp() {
+    const scenario = bubble?.scenario || prompt?.scenario || '这道题';
+    setMessages((current) => [...current, { role: 'assistant', content: `先不用急着选。面对“${scenario}”，只看两件事：哪条说法的前提最像你现在的处境；哪条说法能被你用一个真实岗位或一次沟通验证。如果两件事都答不上，保留“不确定”就是有效答案。` }]);
+    hideBubble();
+    setOpen(true);
   }
 
   async function send() {
@@ -146,6 +161,12 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
             <span className="spirit-bubble-actions">
               <button type="button" className="spirit-bubble-primary" onClick={openOnboardingDetails}>补充路标</button>
               <button type="button" className="spirit-bubble-dismiss" onClick={hideBubble}>暂时不用</button>
+            </span>
+          )}
+          {bubble.kind === 'quiz-help' && (
+            <span className="spirit-bubble-actions">
+              <button type="button" className="spirit-bubble-primary" onClick={openQuizHelp}>帮我拆开</button>
+              <button type="button" className="spirit-bubble-dismiss" onClick={hideBubble}>先保留不确定</button>
             </span>
           )}
         </aside>

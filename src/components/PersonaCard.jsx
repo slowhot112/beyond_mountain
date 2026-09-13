@@ -3,6 +3,7 @@ import { STAGES, GOALS, INDUSTRIES } from '../lib.js';
 
 const liukanshanGif = (name) => '/liukanshan/' + encodeURIComponent(name);
 const LOADING_GIF = liukanshanGif('电脑_6秒_320x320_20fps_透明.gif');
+const ALCHEMY_STEPS = ['寻找知乎真实讨论', '补充全网对照资料', '比对观点成立的前提', '整理成可阅读的结果'];
 
 // 模块②：可编辑处境卡预览/确认（PRD 流程第3步）
 export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, onPasteResume, onLoadSample, resumeLoading, ocrProgress = 0, alchemyLoading, alchemyStep }) {
@@ -14,6 +15,7 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const loadingIndex = Math.max(0, ALCHEMY_STEPS.indexOf(alchemyStep));
 
   function save() { onEdit(draft); setEditing(false); }
 
@@ -23,12 +25,21 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
       <p className="muted">这些坐标会决定山外山去知乎的哪些山头拾脚印。所有条件都可修改，不上传简历也能继续。</p>
 
       {alchemyLoading && (
-        <div className="pc-loading">
+        <div className="pc-loading" role="status" aria-live="polite" aria-label="正在检索并整理真实资料">
           <div className="pc-loading-card">
             <img src={LOADING_GIF} alt="刘看山正在翻资料" width="128" height="128" decoding="async" className="pc-loading-gif" />
-            <div className="pc-loading-text">{alchemyStep || '进山寻路中…'}</div>
-            <div className="pc-loading-progress" aria-hidden="true"><span /></div>
-            <div className="pc-loading-note">通常需要 30–90 秒。你可以留在此页，完成后会自动进入观山台。</div>
+            <div className="pc-loading-copy">
+              <div className="pc-loading-eyebrow">刘看山正在查资料</div>
+              <h3>{alchemyStep || ALCHEMY_STEPS[0]}</h3>
+              <div className="pc-loading-steps" aria-hidden="true">
+                {ALCHEMY_STEPS.map((item, index) => (
+                  <div key={item} className={`pc-loading-step${index < loadingIndex ? ' done' : ''}${index === loadingIndex ? ' active' : ''}`}>
+                    <span>{index < loadingIndex ? '✓' : index + 1}</span>{item}
+                  </div>
+                ))}
+              </div>
+              <div className="pc-loading-note">真实检索通常需要 30–90 秒。页面会在整理完成后自动打开，无需反复点击。</div>
+            </div>
           </div>
         </div>
       )}

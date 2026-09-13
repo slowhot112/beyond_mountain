@@ -519,7 +519,9 @@ export function diffRouteChange(prevRec, curQuiz, curRoles) {
   const prevDomId = Array.isArray(prevQuiz.dominant) ? prevQuiz.dominant[0] : null;
   const nameOf = (roles, id) => {
     const role = (roles || []).find((r) => r.id === id) || {};
-    return role.stance || role.coreArg || role.name || id;
+    return String(role.stance || role.coreArg || role.name || id)
+      .replace(/^该答主(认为|分享)：?\s*/, '')
+      .trim();
   };
   const ts = prevRec.ts ? new Date(prevRec.ts) : null;
   return {

@@ -195,7 +195,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                       className={`quiz-opt${isChosen ? ' chosen' : ''}`}
                       style={role ? { borderColor: isChosen ? hillColor(side, roles) : 'var(--line)', background: isChosen ? hillColor(side, roles) + '14' : 'var(--paper)' } : null}
                       onClick={() => choose(i, opt)}
-                      title={role ? `${role.name || role.stance}` : ''}
+                      title={role ? '来自真实讨论，点击后查看来源' : ''}
                     >
                       {esc(label)}
                       {role && <span className="quiz-opt-side">来自真实讨论 · 点击后查看来源</span>}

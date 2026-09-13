@@ -41,6 +41,23 @@ function sideDisplayName(roleMap, side) {
   return role.stance || role.coreArg || role.name || side;
 }
 
+function presentOptionLabel(q, opt, role) {
+  const raw = typeof opt === 'string' ? opt : opt?.label;
+  if (!role || !/(答主|知乎|汤家凤|车辆工程考研|人生修炼手册|作者|来源)/.test(String(raw || ''))) return raw;
+  const s = String(q?.scenario || '');
+  if (/前提下才成立/.test(s)) return '它只在特定城市、资历和机会条件下成立';
+  if (/反对意见/.test(s)) return `另一种观点提醒：${String(role.stance || role.coreArg || '').replace(/^该答主(认为|分享)：?/, '')}`;
+  if (/未经验证的前提/.test(s)) return '它成立的前提，是你的城市、资历和机会与案例接近';
+  if (/可借鉴度/.test(s)) return '如果你的处境相近，这条观点才更值得参考';
+  return String(role.stance || role.coreArg || raw || '').replace(/^该答主(认为|分享)：?/, '');
+}
+
+function presentAnswerLabel(q, answer, roleMap) {
+  if (!answer) return '';
+  const role = answer.side && answer.side !== CUSTOM_SIDE ? roleMap[answer.side] : null;
+  return presentOptionLabel(q, { label: answer.label }, role) || answer.label;
+}
+
 export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions, onNeedHelp, initialProgress = null }) {
   if (!quiz || !quiz.length) return null;
   const [answered, setAnswered] = useState(() => initialProgress?.answers || {});
@@ -92,8 +109,9 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
   }, [sideCounts, uncertainSides, answeredCount, total, dominant, answered, legacySummary, onProgress]);
 
   function choose(i, opt) {
-    const label = typeof opt === 'string' ? opt : opt.label;
     const side = typeof opt === 'string' ? null : opt.side;
+    const role = side && side !== CUSTOM_SIDE ? roleMap[side] : null;
+    const label = presentOptionLabel(quiz[i], opt, role);
     if (side === CUSTOM_SIDE && label === CUSTOM_TRIGGER_LABEL) {
       setEditingCustom((e) => ({ ...e, [i]: true }));
       return;
@@ -151,7 +169,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
               <p className="quiz-scenario">{i + 1}. <LongText text={q.scenario} max={140} /></p>
               {focusRoleOf(q) && (
                 <div className="quiz-focus">
-                  这一题问的是：<b>{esc(focusRoleOf(q).name || focusRoleOf(q).form || '')}</b>
+                  这题对应的观点前提：
                   {focusRoleOf(q).stance
                     ? <span className="quiz-focus-stance">（{esc(focusRoleOf(q).stance)}）</span>
                     : null}
@@ -165,9 +183,9 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                   const side = typeof opt === 'string' ? null : opt.side;
                   return side && side !== CUSTOM_SIDE;
                 }).map((opt, j) => {
-                  const label = typeof opt === 'string' ? opt : opt.label;
                   const side = typeof opt === 'string' ? null : opt.side;
                   const role = side && side !== CUSTOM_SIDE ? roleMap[side] : null;
+                  const label = presentOptionLabel(quiz[i], opt, role);
                   const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
                   return (
                     <button
@@ -179,7 +197,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                       title={role ? `${role.name || role.stance}` : ''}
                     >
                       {esc(label)}
-                      {role && <span className="quiz-opt-side">{esc(role.form || role.name || side)}</span>}
+                      {role && <span className="quiz-opt-side">来自真实讨论 · 点击后查看来源</span>}
                     </button>
                   );
                 })}
@@ -189,9 +207,9 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
                   const side = typeof opt === 'string' ? null : opt.side;
                   return !side || side === CUSTOM_SIDE;
                 }).map((opt, j) => {
-                  const label = typeof opt === 'string' ? opt : opt.label;
+                  const label = presentOptionLabel(quiz[i], opt, null);
                   const side = typeof opt === 'string' ? null : opt.side;
-                  const isChosen = chosenLabel === label || (side === CUSTOM_SIDE && a?.side === CUSTOM_SIDE);
+                  const isChosen = (a?.side === side && side === CUSTOM_SIDE) || chosenLabel === label;
                   return <button key={j} type="button" className={`quiz-opt-secondary${isChosen ? ' chosen' : ''}`} onClick={() => choose(i, opt)}>{esc(label)}</button>;
                 })}
               </div>
@@ -211,7 +229,7 @@ export default function Quiz({ quiz, roles, onAnswer, onProgress, onGotoActions,
             {a && (
               <div className="quiz-feedback" role="status" aria-live="polite">
                 <div className="quiz-feedback-head">
-                  <div className="quiz-chosen"><span className="quiz-feedback-label">你的选择</span><b>{esc(chosenLabel)}</b></div>
+                  <div className="quiz-chosen"><span className="quiz-feedback-label">你的选择</span><b>{esc(presentAnswerLabel(q, a, roleMap))}</b></div>
                   <span className="quiz-feedback-state">已记录，可随时改选</span>
                 </div>
                 <div className="quiz-confidence">

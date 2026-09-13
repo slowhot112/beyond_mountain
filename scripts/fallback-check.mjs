@@ -46,7 +46,7 @@ check('选项 side 覆盖多个角色（不再是两个同 side 的认同/警惕
 const maxScenario = Math.max(...quiz.map((q) => (q.scenario || '').length));
 check('题干长度 ≤120（不再整段原文拍脸上）', maxScenario <= 120, `maxScenario=${maxScenario}`);
 const maxOpt = Math.max(...quiz.flatMap((q) => (q.options || []).map((o) => (o.label || '').length)));
-check('选项标签长度 ≤30（不再一整行塞不下）', maxOpt <= 30, `maxOptionLabel=${maxOpt}`);
+check('选项标签长度适合换行（不再截断观点）', maxOpt <= 90, `maxOptionLabel=${maxOpt}`);
 const maxCore = Math.max(...roles.map((r) => (r.coreArg || '').length));
 check('最强论点长度 ≤125', maxCore <= 125, `maxCoreArg=${maxCore}`);
 check('角色名用文章观点摘要、作者退为副标题',

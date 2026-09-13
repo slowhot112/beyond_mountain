@@ -715,7 +715,7 @@ function rolesFromItems(items, pt, existing = [], topic = '') {
     // 只要标题像问题（含问号/如何/怎样/吗/呢），就用摘要当立场，避免把问题标题硬塞成观点
     const isQuestion = /[?？]/.test(rawTitle) || /如何|怎样|怎么|吗|呢|为什么/.test(rawTitle);
     const stance = summaryBrief
-      ? (isQuestion ? `该答主认为：${summaryBrief}` : `该答主分享：${summaryBrief}`)
+      ? (isQuestion ? summaryBrief : summaryBrief)
       : titleBrief;
     const isWeb = mainIt.source === 'web';
     // name：优先用真实作者；名字太脏（知乎答主/全网来源/域名等）时回退到一组有区分度的派系标签，避免所有角色都叫"知乎答主"导致自测题选项雷同
@@ -723,14 +723,15 @@ function rolesFromItems(items, pt, existing = [], topic = '') {
     const niceAuthor = (authorName && !/(知乎答主|全网来源|全网|答主|来源)/.test(authorName) && authorName.length <= 12) ? authorName : '';
     const PERSONA_LABELS = ['一线从业者', '资深从业者', '行业观察者', '过来人', '招聘方', '转行亲历者'];
     const name = niceAuthor || PERSONA_LABELS[i % PERSONA_LABELS.length];
-    const formTag = isWeb ? '全网来源' : '知乎答主';
+    const formTag = isWeb ? '全网资料' : '知乎内容';
     // 边界：点出该观点的局部前提，比"个人观点"具体
     const boundary = summaryBrief
       ? `该观点来自${formTag}「${authorName}」的局部经验，主要反映 ta 的城市、资历、客户群体；换个人结果可能不一样。`
       : '该观点来自单一来源，需结合你自己的城市、资历和处境判断。';
     out.push({
       id,
-      name: authorName,
+      // 角色名是观点身份，不直接把真实作者名变成用户要站队的对象。
+      name: PERSONA_LABELS[i % PERSONA_LABELS.length],
       form: formTag,
       side: '',
       persona: `来自${isWeb ? '全网' : '知乎'}真实讨论：${briefText(mainIt.title, 80)}`,
@@ -1335,13 +1336,13 @@ function makeSearchStats({ queries, zhihuFound, webFound, zhihuChosen, webChosen
 // 选项直接来自各派真实立场，并附一个「不确定」选项，避免自测变成二选一。
 // 选项文案上限 30 字，保证在按钮里一行放得下（fallback-check 有对应断言）。
 function quizFromItems(roles, topic) {
-  const ref = (roles && roles.length ? roles : [{ id: 'r1', name: '知乎答主' }]).slice(0, 3);
+  const ref = (roles && roles.length ? roles : [{ id: 'r1', name: '一线从业者' }]).slice(0, 3);
   const templates = [
-    { pre: '下面这条真实经验，你的第一反应更接近谁？', fb: '想提醒你一句：你是在看道理，还是在看站队？', opt: (role) => briefText(role.stance || role.coreArg || role.name, 30) },
-    { pre: '这条经验在什么前提下才成立，超出该前提是否就失效？', fb: '想提醒你一句：你是不是把"在某条件下才成立"，当成了"放哪都对"？', opt: (role) => `只在「${briefText(role.name, 12)}」的局部处境（城市/资历/客户群）下才成立` },
-    { pre: '如果只看反对意见，下面哪条对这条经验的质疑最有力？', fb: '想提醒你一句：你是不是只听顺耳的那半边？', opt: (role) => briefText(role.rebuts?.[0]?.text || role.rebuts?.[0]?.quote || `另一派认为：${role.stance || role.coreArg}`, 30) },
-    { pre: '这条经验的结论最依赖哪个未经验证的前提？', fb: '想提醒你一句：你是不是把"想当然"当成了"本来如此"？', opt: (role) => `前提是：${briefText(role.name, 12)} 的城市、资历、客户群和你差不多` },
-    { pre: '结合你的城市/时间压力/背景，这条经验对你当前处境的可借鉴度有多高？', fb: '想提醒你一句：你是不是在照搬别人的处境？', opt: (role) => `若处境和「${briefText(role.name, 16)}」接近，优先听这一派` },
+    { pre: '下面这条真实经验，你的第一反应更接近哪种说法？', fb: '想提醒你一句：你是在看道理，还是在看站队？', opt: (role) => optionText(role.stance || role.coreArg || role.name) },
+    { pre: '这条经验在什么前提下才成立，超出该前提是否就失效？', fb: '想提醒你一句：你是不是把"在某条件下才成立"，当成了"放哪都对"？', opt: () => '它只在特定城市、资历和机会条件下成立' },
+    { pre: '如果只看反对意见，下面哪条对这条经验的质疑最有力？', fb: '想提醒你一句：你是不是只听顺耳的那半边？', opt: (role) => `另一种观点提醒：${optionText(role.rebuts?.[0]?.text || role.rebuts?.[0]?.quote || role.stance || role.coreArg, 62)}` },
+    { pre: '这条经验的结论最依赖哪个未经验证的前提？', fb: '想提醒你一句：你是不是把"想当然"当成了"本来如此"？', opt: () => '它成立的前提，是你的城市、资历和机会与案例接近' },
+    { pre: '结合你的城市/时间压力/背景，这条经验对你当前处境的可借鉴度有多高？', fb: '想提醒你一句：你是不是在照搬别人的处境？', opt: () => '如果你的处境相近，这条观点才更值得参考' },
   ];
   return templates.map((tpl, i) => {
     const r = ref[i % ref.length];
@@ -1419,6 +1420,14 @@ function briefText(s, max = 120) {
   const m = t.match(/^[^。！？.!?]{10,120}[。！？.!?]/);
   if (m) return m[0].slice(0, max);
   return t.length > max ? t.slice(0, max) + '…' : t;
+}
+
+// 自测按钮展示用的完整观点摘要：只截到可读长度，不截断到半句话。
+function optionText(s, max = 86) {
+  const t = String(s || '').trim().replace(/^该答主(认为|分享)：?/, '').trim();
+  if (!t) return '这条观点的核心判断';
+  const sentence = t.match(/^.{8,140}?[。！？.!?](?=\s|$)/)?.[0] || t;
+  return sentence.length <= max ? sentence : `${sentence.slice(0, max)}…`;
 }
 
 // 标题归一化（去重用）：去除所有空白和标点，避免"标题?-知乎"与"标题？-知乎"被当作两篇

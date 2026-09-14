@@ -158,6 +158,7 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
   const [openIdx, setOpenIdx] = useState(() => conflict?.roles?.length ? 0 : null);
   const [taskStarted, setTaskStarted] = useState(() => Boolean(savedTask?.started));
   const [taskRoleId, setTaskRoleId] = useState(() => savedTask?.roleId || conflict?.roles?.[0]?.id || '');
+  const [roleSignals, setRoleSignals] = useState(() => savedTask?.signals || {});
   const taskSectionRef = useRef(null);
   if (!conflict) return null;
 
@@ -207,6 +208,18 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
     saveRoad(roadData, '__current', next);
     onTaskChange?.(next);
   }
+  function markRole(roleId, signal) {
+    const nextSignals = { ...roleSignals, [roleId]: signal };
+    setRoleSignals(nextSignals);
+    const role = (conflict.roles || []).find((item) => item.id === roleId);
+    if (!role) return;
+    setTaskRoleId(roleId);
+    const roleIndex = (conflict.roles || []).indexOf(role);
+    const roleAngle = viewpointAngle(role, roleIndex);
+    const roleVerify = `“${replaceInternalRoleIds(role.stance || role.coreArg || generatedVerify, conflict.roles)}”是否适合你的处境。`;
+    persistCurrentTask({ roleId, angle: roleAngle, verify: roleVerify, signals: nextSignals, signalUpdatedAt: Date.now(), signalRole: roleId, signalAngle: roleAngle });
+    window.requestAnimationFrame(() => taskSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }
   function selectTaskRole(roleId) {
     if (taskStarted) return;
     setTaskRoleId(roleId);
@@ -254,15 +267,29 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
             {openIdx !== i && <PreviewLine s={s} i={i} />}
             {openIdx === i && (
               <div className="role-body" id={`role-body-${i}`}>
-                <div className="role-stance-box">{esc(s.stance)}</div>
+                <div className="role-stance-box"><span>这条观点认为</span>{esc(s.stance)}</div>
                 {s.persona && <p className="role-persona">{esc(s.persona)}</p>}
-                <p><b>最硬论据：</b><LongText text={s.coreArg} max={120} /></p>
-                <p><b>适合哪种赶路人：</b><LongText text={s.bestFor} max={80} /></p>
-                <p><b>这条路的边界：</b><LongText text={cleanBoundary(s)} max={80} /></p>
-                <p className="match-reason">为什么贴你：<LongText text={s.matchReason || '按你的路标写的'} max={140} /></p>
+                <div className="role-context-grid">
+                  <div><span>它依据什么</span><p><LongText text={s.coreArg} max={120} /></p></div>
+                  <div><span>适合什么处境</span><p><LongText text={s.bestFor} max={80} /></p></div>
+                  <div><span>成立的边界</span><p><LongText text={cleanBoundary(s)} max={80} /></p></div>
+                  <div className="role-context-match"><span>与你的关系</span><p><LongText text={s.matchReason || '按你的路标写的'} max={140} /></p></div>
+                </div>
                 <div className="source-tags">
                   <span className="source-tag from"><span className="st-k">来源</span>{esc(roleSourceLabel(s, demo))}</span>
                   <span className="source-tag match"><span className="st-k">匹配</span>{esc(s.matchReason || '你的路标')}</span>
+                </div>
+                <div className="role-signal" aria-label="标记这条观点对你的关系">
+                  <span>你怎么看这条：</span>
+                  {[
+                    ['like', '像我的处境'],
+                    ['not-fit', '前提不适合我'],
+                    ['unsure', '我还拿不准'],
+                  ].map(([key, label]) => (
+                    <button key={key} type="button" className={roleSignals[s.id] === key ? 'active' : ''} onClick={() => markRole(s.id, key)}>{label}</button>
+                  ))}
+                  <button type="button" className="role-signal-verify" onClick={() => { setTaskRoleId(s.id); markRole(s.id, 'verify'); }}>加入验证</button>
+                  {roleSignals[s.id] && <small role="status">已记录：{roleSignals[s.id] === 'like' ? '下一步优先围绕这条自测' : roleSignals[s.id] === 'not-fit' ? '下一步会把它作为反例对照' : roleSignals[s.id] === 'unsure' ? '下一步会优先拆开它的前提' : '已加入当前验证问题'}</small>}
                 </div>
                 <div className="rebut">
                   <b>对其他山头的质疑：</b>
@@ -274,7 +301,7 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
                   </button>
                 )}
                 <div className="sources">
-                  <span className="muted">{demo ? '示例脚印（点击翻面）：' : '原文脚印（点击翻面）：'}</span>
+                  <div className="role-source-heading"><span>{demo ? '示例脚印' : '原文脚印'}</span><small>{demo ? '当前为演示素材，不代表真实文章' : '点击来源卡片查看摘要，打开链接核对原文'}</small></div>
                   {(() => {
                     // 前端兜底去重：后端已经按归一化标题去重，这里再按渲染顺序去重一次
                     const seen = new Set();

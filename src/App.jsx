@@ -49,6 +49,7 @@ export default function App() {
   const [auth, setAuth] = useState({ loading: true, authenticated: false, user: null });
   const [authConfig, setAuthConfig] = useState({ enabled: false });
   const [carryoverChoice, setCarryoverChoice] = useState(null);
+  const alchemyJobRef = useRef(null);
   const carryoverCandidates = useMemo(() => findCarryoverCandidates(records, card || {}), [records, card]);
 
   useEffect(() => {
@@ -100,6 +101,23 @@ export default function App() {
   }
 
   function buildCard(c) { setCard(c); setCarryoverChoice(null); go('card'); }
+
+  async function waitAlchemyJob(jobId, myId) {
+    while (myId === reqId.current) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const status = await api(`/api/alchemy/status?id=${encodeURIComponent(jobId)}`, { timeout: 15000 });
+      if (myId !== reqId.current) return null;
+      if (status?.status === 'complete') return status.data;
+      if (status?.status === 'failed') {
+        const e = new Error(status.error || '观点整理没有完成，但真实来源仍可查看。');
+        e.partial = status.data;
+        throw e;
+      }
+      if (status?.data) setData(status.data);
+      setAlchemyStep(status?.status === 'searching' ? '寻找知乎真实讨论' : '正在把来源整理成观点');
+    }
+    return null;
+  }
 
   function handleExportArchive() {
     try {
@@ -164,7 +182,7 @@ export default function App() {
     try {
       // 联动：把历史存档（含上一轮的行动结果 feedback）一起交给后端，
       // 下次炼金才知道「哪些判断已经验证过、哪条路线被现实打脸」，避免重复验证、该换路的换路。
-      const data = await api('/api/alchemy', {
+      const started = await api('/api/alchemy/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildAlchemyPayload({
@@ -177,6 +195,14 @@ export default function App() {
             : [],
         })),
       });
+      const jobId = started?.jobId;
+      if (!jobId) throw new Error('这次没有拿到整理任务编号，请重试。');
+      alchemyJobRef.current = jobId;
+      if (started?.data) {
+        setData(started.data);
+        go('result0');
+      }
+      const data = await waitAlchemyJob(jobId, myId);
       if (myId !== reqId.current) return;
       if (!data || (!data.conflict && !data.topic)) throw new Error('返回数据为空或格式异常');
       setData(data);
@@ -188,6 +214,7 @@ export default function App() {
       go('result0'); // 先进总览，由用户选择进入 ②/③/④
     } catch (e) {
       if (myId !== reqId.current) return;
+      if (e.partial) setData(e.partial);
       if (e.name === 'AbortError') setError('这次寻找超过两分钟了。你的路标还在，可以直接重试；我们不会重复保存失败结果。');
       else if (e.code === 'RATE_LIMITED') setError('操作有点快，请稍等一分钟再试。你的路标和已填内容都还在。');
       else if (e.code === 'DAILY_LIMIT_REACHED') setError('今天的生成额度已用完。你可以保留路标，稍后再来；已有山径仍可正常回看。');

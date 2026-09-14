@@ -457,7 +457,19 @@ export function pickCorpus(items, total = 8, topic = '') {
 // 多角色对照（B1 伪多 Agent）：单次调用产出多个有独立人设的虚拟答主，各自基于知乎内容给视角并互相质疑。
 // 不综合结论，保留张力；单次调用零额外额度消耗。
 // persona = { identity, industry, sub }（由前端 src/lib.js 的 personaPayload 提供）
-export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = [], records = []) {
+export async function alchemySearch(secret, topic, persona = {}, queries = []) {
+  const qs = (queries && queries.length) ? queries.slice(0, 5) : [topic];
+  const searchResults = await Promise.allSettled([
+    ...qs.map((q) => zhihuSearch(secret, q, 6)),
+    ...qs.map((q) => zhihuGlobalSearch(secret, q, 6)),
+  ]);
+  let items = [];
+  searchResults.forEach((r) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) items = items.concat(r.value); });
+  const picked = pickCorpus(items, 8, topic);
+  return { qs, items: picked.corpus, picked, zhihuItems: picked.zhihuItems, webItems: picked.webItems };
+}
+
+export async function alchemy(secret, topic, persona = { identity: 'pre', industry: 'ai', sub: 'AIGC' }, queries = [], records = [], searchBundle = null) {
   if (!hasSecret(secret)) return MOCK.alchemy(topic, persona); // 演示模式：返回精美示例，保证"打开即完整"
   const pt = (typeof persona === 'string')
     ? { identity: 'pre', industry: 'ai', sub: 'AIGC', prompt: '' }
@@ -468,18 +480,11 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
   pt.subName = pt.subName || pt.sub;
   const personaPrompt = pt.prompt || `你是「${pt.identityName}」的人，行业「${pt.industryName}」，细分「${pt.subName}」。`;
   // 模块④：检索词结合处境卡（站内 + 全网双路并发检索，补知乎单一来源短板；各自 15s 超时，单路失败不影响整体）
-  const qs = (queries && queries.length) ? queries.slice(0, 5) : [topic];
-  const searchResults = await Promise.allSettled([
-    ...qs.map((q) => zhihuSearch(secret, q, 6)),
-    ...qs.map((q) => zhihuGlobalSearch(secret, q, 6)),
-  ]);
-  let items = [];
-  searchResults.forEach((r) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) items = items.concat(r.value); });
-  // 去重 + 权重选料：知乎为主体（占 3/4），全网补位（占 1/4）；一方不足时名额让给另一方
-  // 8 条来源足够支撑观点对照；减少无关上下文，降低直答等待时间。
-  const picked = pickCorpus(items, 8, topic);
-  const { zhihuItems, webItems } = picked;
-  items = picked.corpus; // 兜底/补全/来源分配都复用这份精选语料，保证展示的来源和喂给模型的一致
+  const bundle = searchBundle || await alchemySearch(secret, topic, pt, queries);
+  const qs = bundle.qs || ((queries && queries.length) ? queries.slice(0, 5) : [topic]);
+  const picked = bundle.picked || pickCorpus(bundle.items || [], 8, topic);
+  const { zhihuItems, webItems } = bundle;
+  const items = bundle.items || picked.corpus;
   const corpus = picked.corpus
     .map((it, i) => `【来源${i + 1}·${it.source === 'web' ? '全网' : (it.voteUp || 0) + '赞'}】${it.title}\n${it.summary}`)
     .join('\n\n');

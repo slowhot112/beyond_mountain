@@ -100,6 +100,15 @@ a { color: var(--zhihu); }
 }
 .oauth-btn:hover { background: var(--zhihu-ink); transform: translateY(-1px); }
 .oauth-btn:disabled { opacity: .5; cursor: default; transform: none; }
+.hub-pending { padding: 28px 24px; border: 1px solid #b9daf4; border-radius: 16px; background: #f5faff; }
+.hub-pending-kicker { color: var(--zhihu); font-size: 12px; font-weight: 800; }
+.hub-pending h2 { margin: 7px 0 9px; font-size: 25px; }
+.hub-pending p { max-width: 62ch; margin: 0; color: var(--ink-soft); line-height: 1.7; }
+.hub-pending-sources { display: grid; gap: 8px; margin-top: 20px; }
+.hub-pending-sources a { display: block; overflow: hidden; padding: 10px 12px; border: 1px solid #d6e7f3; border-radius: 10px; background: #fff; color: var(--ink-soft); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.hub-pending-sources a:hover { border-color: var(--zhihu); color: var(--zhihu-ink); }
+.hub-pending-sources span { display: inline-block; margin-right: 8px; padding: 2px 6px; border-radius: 5px; background: var(--zhihu-soft); color: var(--zhihu-ink); font-size: 11px; font-weight: 700; }
+.hub-pending-note { margin-top: 16px; color: var(--muted); font-size: 12px; }
 .topbar-account { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #b9daf4; border-radius: 9px; background: #f5faff; color: var(--zhihu-ink); font-size: 12px; white-space: nowrap; }
 .topbar-account .account-status-dot { width: 7px; height: 7px; box-shadow: none; }
 .topbar-logout { padding: 0 0 0 7px; border: 0; border-left: 1px solid #cfe2f1; background: transparent; color: #71808a; font: inherit; cursor: pointer; }

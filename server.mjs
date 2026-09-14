@@ -30,6 +30,7 @@ loadEnv();
 const oauth = await import('./oauth.js');
 const oauthSessions = new Map();
 const oauthStates = new Map();
+const alchemyJobs = new Map();
 const SYNC_FILE = join(__dirname, '.cache', 'oauth-archives.json');
 const SYNC_KEY = process.env.SYNC_STORAGE_KEY || '';
 
@@ -93,6 +94,7 @@ const RATE_LIMITS = {
   hot: envInt('API_RATE_LIMIT_HOT', 30),
   search: envInt('API_RATE_LIMIT_SEARCH', 30),
   alchemy: envInt('API_RATE_LIMIT_ALCHEMY', 6),
+  alchemyStart: envInt('API_RATE_LIMIT_ALCHEMY', 6),
   actions: envInt('API_RATE_LIMIT_ACTIONS', 10),
   resume: envInt('API_RATE_LIMIT_RESUME', 6),
   chat: envInt('API_RATE_LIMIT_CHAT', 20),
@@ -106,12 +108,13 @@ const RATE_ROUTES = new Map([
   ['GET /api/hot', 'hot'],
   ['GET /api/search', 'search'],
   ['POST /api/alchemy', 'alchemy'],
+  ['POST /api/alchemy/start', 'alchemyStart'],
   ['POST /api/actions', 'actions'],
   ['POST /api/resume', 'resume'],
   ['POST /api/chat', 'chat'],
 ]);
 const API_METHODS = new Map([
-  ['/api/hot', 'GET'], ['/api/search', 'GET'], ['/api/alchemy', 'POST'], ['/api/actions', 'POST'],
+  ['/api/hot', 'GET'], ['/api/search', 'GET'], ['/api/alchemy', 'POST'], ['/api/alchemy/start', 'POST'], ['/api/alchemy/status', 'GET'], ['/api/actions', 'POST'],
   ['/api/resume', 'POST'], ['/api/chat', 'POST'], ['/api/health', 'GET'],
 ]);
 const TRUST_PROXY = /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || '') || Boolean(process.env.RAILWAY_ENVIRONMENT);
@@ -388,6 +391,63 @@ const server = createServer(async (req, res) => {
       const requestSecret = live ? ACTIVE_SECRET : '';
       const items = await zhihu.zhihuSearch(requestSecret, q, 10, TTL);
       return sendJson(res, { ok: true, data: { mock: !requestSecret, quotaFallback: !live, quotaCode: live ? undefined : 'DAILY_LIMIT_REACHED', items } });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/alchemy/start') {
+      let body = {};
+      try { body = await readBody(req); } catch (e) { return bodyError(res, e); }
+      const topic = body.topic || q;
+      if (!topic) return sendJson(res, { ok: false, code: 'MISSING_TOPIC', message: '缺少 topic' }, 400);
+      const persona = body.persona || { identity: 'pre', industry: 'ai', sub: 'AIGC' };
+      const queries = Array.isArray(body.queries) ? body.queries.slice(0, 5) : [];
+      const records = Array.isArray(body.records) ? body.records.slice(0, 30) : [];
+      const queryCount = queries.length || 1;
+      const live = await reserveDailyMany([['ai', 2], ['search', queryCount * 2]]);
+      const requestSecret = live ? ACTIVE_SECRET : '';
+      const id = crypto.randomBytes(18).toString('base64url');
+      const job = { id, topic, persona, queries, records, requestSecret, createdAt: Date.now(), status: 'searching' };
+      alchemyJobs.set(id, job);
+      setTimeout(() => alchemyJobs.delete(id), 10 * 60 * 1000);
+      let bundle;
+      try {
+        bundle = await zhihu.alchemySearch(requestSecret, topic, persona, queries);
+      } catch (e) {
+        alchemyJobs.delete(id);
+        return sendJson(res, { ok: false, code: 'SEARCH_FAILED', message: '真实来源暂时没有返回，请稍后重试。' }, 502);
+      }
+      const { picked, zhihuItems = [], webItems = [] } = bundle;
+      const searchStats = {
+        queries: bundle.qs.length,
+        zhihuFound: zhihuItems.length,
+        webFound: webItems.length,
+        zhihuChosen: picked.zhihuChosen,
+        webChosen: picked.webChosen,
+        totalChosen: picked.corpus.length,
+        mode: 'normal',
+        rationale: '先整理知乎站内经验，再用全网资料补充；观点仍在后台生成。',
+      };
+      const sources = [...zhihuItems.slice(0, 4), ...webItems.slice(0, 2)].slice(0, 6);
+      job.status = 'generating';
+      job.preview = { ok: true, pending: true, topic, sources, searchStats };
+      void (async () => {
+        try {
+          const result = await zhihu.alchemy(requestSecret, topic, persona, queries, records, bundle);
+          if (!live && ACTIVE_SECRET) { result.quotaFallback = true; result.quotaCode = 'DAILY_LIMIT_REACHED'; }
+          job.result = result;
+          job.status = 'complete';
+        } catch (e) {
+          job.status = 'failed';
+          job.error = e?.message || '观点整理没有完成，但检索到的真实来源仍可查看。';
+        }
+      })();
+      return sendJson(res, { ok: true, data: { jobId: id, status: job.status, data: job.preview } });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/alchemy/status') {
+      const id = url.searchParams.get('id') || '';
+      const job = alchemyJobs.get(id);
+      if (!job) return sendJson(res, { ok: false, code: 'JOB_NOT_FOUND', message: '这次整理已过期，请重新开始。' }, 404);
+      if (job.status === 'complete') return sendJson(res, { ok: true, data: { jobId: id, status: job.status, data: job.result } });
+      if (job.status === 'failed') return sendJson(res, { ok: true, data: { jobId: id, status: job.status, error: job.error, data: job.preview } });
+      return sendJson(res, { ok: true, data: { jobId: id, status: job.status, data: job.preview } });
     }
     if (req.method === 'POST' && url.pathname === '/api/alchemy') {
       let body = {};

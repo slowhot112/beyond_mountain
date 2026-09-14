@@ -38,6 +38,7 @@ function isZhihuUrl(url) {
 }
 
 export default function ResultHub({ data, quizDone, onGoto }) {
+  const pending = Boolean(data?.pending);
   const isDemo = Boolean(data?.mock);
   const linkedSources = [
     ...(Array.isArray(data?.sources) ? data.sources : []),
@@ -66,6 +67,23 @@ export default function ResultHub({ data, quizDone, onGoto }) {
   const heroAction = isDemo ? '先看演示观点' : hasVerifiableSources ? '查看观点与原文' : '查看待验证假设';
   return (
     <section className="card hub">
+      {pending && (
+        <div className="hub-pending" role="status" aria-live="polite">
+          <div className="hub-pending-kicker">检索已经完成，观点正在整理</div>
+          <h2>先看找到的真实来源</h2>
+          <p>知乎站内与全网资料已经先返回。刘看山正在比对它们的处境和前提，完成后会自动补上观点墙。</p>
+          <div className="hub-pending-sources">
+            {(data.sources || []).slice(0, 6).map((item, index) => (
+              <a key={`${item.url || item.title}-${index}`} href={item.url || '#'} target="_blank" rel="noreferrer">
+                <span>{item.source === 'web' ? '全网' : '知乎'}</span>{item.title || '未命名来源'} ↗
+              </a>
+            ))}
+          </div>
+          <div className="hub-pending-note">通常还需要十几秒。你可以先打开来源，不必重复点击。</div>
+        </div>
+      )}
+      {!pending && (
+      <>
       <div className="hub-hero">
         <div className="hub-main">
           <div className="hub-kicker">你的第一个结果已经准备好</div>
@@ -145,6 +163,8 @@ export default function ResultHub({ data, quizDone, onGoto }) {
           );
         })}
       </div>
+      </>
+      )}
     </section>
   );
 }

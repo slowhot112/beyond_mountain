@@ -72,11 +72,12 @@ export default function ResultHub({ data, quizDone, onGoto }) {
           <h2>{heroTitle}</h2>
           <p className="hub-topic">你正在判断：{esc(data?.topic)}</p>
           <p className="hub-lead">先看不同答案适合什么处境，再决定要不要自测。完整路线不会在第一次使用时压给你。</p>
+          <div className="hub-next-action"><span>现在只做一件事</span><b>打开观点墙，先找到与你处境最接近的一条判断</b><small>看完后你可以收起页面，不需要立刻做决定。</small></div>
           <button type="button" className="primary hub-primary" onClick={() => onGoto('result1')}>{heroAction} <span aria-hidden="true">→</span></button>
         </div>
         <aside className="hub-source-note" aria-label="本次资料来源">
           <span className="hub-trust-dot" aria-hidden="true" />
-          <div><b>本次资料来源</b><p>{sourceMessage}</p></div>
+          <div><b>本次资料来源</b><p>{sourceMessage}</p><small>{verifiableSources.length ? `已整理 ${verifiableSources.length} 条可打开来源` : '当前没有可核验链接'}</small></div>
         </aside>
       </div>
       {data?.searchStats && <details className="search-details"><summary>查看本次资料来源与检索范围</summary>{(() => {
@@ -109,6 +110,11 @@ export default function ResultHub({ data, quizDone, onGoto }) {
       <div className="hub-path-heading">
         <span>接下来怎么用</span>
         <small>先做第 1 步，后两步按需进入</small>
+      </div>
+      <div className="hub-route" aria-label="推荐使用顺序">
+        <span className="hub-route-step"><b>1</b>先看不同声音</span><i aria-hidden="true">→</i>
+        <span className="hub-route-step"><b>2</b>辨认自己的倾向</span><i aria-hidden="true">→</i>
+        <span className="hub-route-step"><b>3</b>只选一个现实验证</span>
       </div>
       <div className="hub-grid">
         {ENTRIES.map((e, idx) => {

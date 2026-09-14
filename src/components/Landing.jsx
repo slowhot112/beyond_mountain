@@ -10,10 +10,13 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
   const journal = journalSummary(list);
 
   return (
-    <section className="card landing">
+    <section className={`card landing${has ? ' landing-returning' : ' landing-first'}`}>
       {has && <div className="far-hills far-hills-home" aria-hidden="true" />}
       {has ? (
-        <h1 className="landing-title">我的山径</h1>
+        <>
+          <div className="landing-eyebrow">长期陪伴 · 判断时间线</div>
+          <h1 className="landing-title">我的山径</h1>
+        </>
       ) : (
         <>
           <div className="landing-figure">
@@ -28,9 +31,17 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
 
       <p className="landing-tagline">
         {has
-          ? `你的山径上已有 ${list.length} 座山头${list.length >= 30 ? '（山径最多记 30 座山头，更早的会被新的替下）' : ''}。每一次判断，都是你在山径上插下的一面小旗。点开任意一座，都能回到那天你看到的山势。`
-          : '山外有山，路在脚下。每一次判断，都是你在山径上插下的一面小旗。'}
+          ? `你的山径上已有 ${list.length} 座山头${list.length >= 30 ? '（山径最多记 30 座山头，更早的会被新的替下）' : ''}。每一次判断，都是你在山径上插下的一面小旗。`
+          : '从真实过来人经验里，看清哪条路更适合现在的你。'}
       </p>
+
+      {!has && <div className="landing-promise" aria-label="使用流程概览">
+        <div><b>约 2 分钟</b><span>先说清一个困惑</span></div>
+        <i aria-hidden="true">→</i>
+        <div><b>真实来源</b><span>看不同处境的答案</span></div>
+        <i aria-hidden="true">→</i>
+        <div><b>一个小验证</b><span>今天就能开始</span></div>
+      </div>}
 
       {has && (
         <button type="button" className="landing-journal-entry" onClick={onOpenJournal}>
@@ -38,6 +49,23 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
           <span><b>行动簿</b><small>看判断如何被现实改写</small></span>
           <span className={journal.waiting ? 'lje-status attention' : 'lje-status'}>{journal.waiting ? `${journal.waiting} 条变化等你确认` : `${journal.verifying} 条正在验证`}</span>
         </button>
+      )}
+
+      {has && (journal.waiting > 0 || journal.verifying > 0) && (
+        <div className="landing-next" role="status">
+          <div className="landing-next-copy">
+            <span className="landing-next-kicker">接着走</span>
+            <b>{journal.waiting > 0 ? `${journal.waiting} 条现实变化等你确认` : '还有一条验证中的山径'}</b>
+            <span>回到原来的判断，记录现实告诉你的结果。</span>
+          </div>
+          <button type="button" className="landing-next-btn" onClick={() => {
+            const pending = list.find((r) => {
+              const task = normalizeCurrentTask(r.currentTask || (r.data ? loadRoad(r.data)?.__current : null));
+              return task?.started && !task?.verdict;
+            });
+            onOpen?.(pending || list[0]);
+          }}>继续 →</button>
+        </div>
       )}
 
       {!has && (
@@ -48,7 +76,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
 
       <div className="landing-actions">
         <button className="primary landing-start" onClick={onStart}>
-          {has ? '再插一面旗 →' : '标记我的位置 →'}
+          {has ? '开始新的判断 →' : '标记我的位置 →'}
         </button>
         {has && (
           <button className="link-btn landing-clear" onClick={() => {
@@ -74,6 +102,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
         {!has && <span className="landing-hint muted">先说说你站在哪个路口，约两分钟给你画出路标</span>}
       </div>
 
+      {has && <div className="landing-section-heading"><span>你走过的山径</span><small>点击一条，回到当时的判断</small></div>}
       <div className="growth-map">
         {has ? (
           list.map((r, idx) => {

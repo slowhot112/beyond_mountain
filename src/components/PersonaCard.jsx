@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { STAGES, GOALS, INDUSTRIES } from '../lib.js';
 
 const liukanshanGif = (name) => '/liukanshan/' + encodeURIComponent(name);
@@ -10,12 +10,20 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
   const stage = STAGES.find((x) => x.id === card.stage) || STAGES[0];
   const goals = (card.goals || []).map((g) => (GOALS.find((x) => x.id === g) || {}).name).filter(Boolean);
   const ind = INDUSTRIES.find((x) => x.id === card.industry) || INDUSTRIES[0];
-  const industryName = card.industryCustom?.trim() || ind.name;
+  const industryName = card.customIndustry?.trim() || card.industryCustom?.trim() || ind.name;
   const subName = card.subCustom?.trim() || card.sub || ind.subs[0];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(card);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const loadingIndex = Math.max(0, ALCHEMY_STEPS.indexOf(alchemyStep));
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!alchemyLoading) { setElapsed(0); return undefined; }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [alchemyLoading]);
 
   function save() { onEdit(draft); setEditing(false); }
 
@@ -31,6 +39,7 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
             <div className="pc-loading-copy">
               <div className="pc-loading-eyebrow">刘看山正在查资料</div>
               <h3>{alchemyStep || ALCHEMY_STEPS[0]}</h3>
+              <div className="pc-loading-time">已用时 {elapsed} 秒 · 正在进行第 {loadingIndex + 1}/4 步</div>
               <div className="pc-loading-steps" aria-hidden="true">
                 {ALCHEMY_STEPS.map((item, index) => (
                   <div key={item} className={`pc-loading-step${index < loadingIndex ? ' done' : ''}${index === loadingIndex ? ' active' : ''}`}>
@@ -38,7 +47,7 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
                   </div>
                 ))}
               </div>
-              <div className="pc-loading-note">真实检索通常需要 30–90 秒。页面会在整理完成后自动打开，无需反复点击。</div>
+              <div className="pc-loading-note">需要同时打开并核对真实来源，通常需要 30–90 秒。完成后会自动进入观山台，请勿重复点击。</div>
             </div>
           </div>
         </div>
@@ -46,13 +55,16 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
 
       {!editing ? (
         <div className="pc-view">
-          <Row k="脚下路段" v={stage.name} />
-          <Row k="想去的方向" v={goals.join('、') || '（暂未明确）'} />
-          <Row k="所在山头" v={`${industryName} / ${subName}`} />
-          <Row k="落脚城市" v={card.city || '（未填）'} />
-          <Row k="决定窗口" v={card.timePressure || '（未填）'} />
-          <Row k="站在哪个路口" v={card.confusion} />
-          <Row k="行囊摘要" v={card.education || '（未上传简历/未填）'} />
+          <div className="pc-focus-question"><span>本次要判断</span><strong>{card.confusion}</strong></div>
+          <div className="pc-coordinates" aria-label="本次检索条件">
+            <Row k="当前阶段" v={stage.name} />
+            <Row k="目标方向" v={goals.join('、') || '暂未明确'} />
+            <Row k="关注领域" v={`${industryName} / ${subName}`} />
+            <Row k="目标城市" v={card.city || '未补充'} optional={!card.city} />
+            <Row k="决定时间" v={card.timePressure || '未补充'} optional={!card.timePressure} />
+            <Row k="经历摘要" v={card.education || '未补充'} optional={!card.education} />
+          </div>
+          <p className="pc-impact-note">检索会优先匹配与你阶段、方向和领域相近的真实经历；未补充项不会阻止你继续。</p>
         </div>
       ) : (
         <div className="pc-edit">
@@ -118,9 +130,9 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
   );
 }
 
-function Row({ k, v }) {
+function Row({ k, v, optional = false }) {
   return (
-    <div className="pc-row">
+    <div className={`pc-row${optional ? ' optional' : ''}`}>
       <span className="pc-k">{k}</span>
       <span className="pc-v">{v}</span>
     </div>

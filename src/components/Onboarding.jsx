@@ -29,6 +29,7 @@ export default function Onboarding({ initial, onBuildCard, history, onDraftChang
   }
 
   const canBuild = card.stage && card.goals.length > 0 && (card.industry || card.customIndustry?.trim());
+  const completedCount = [card.stage, card.goals.length > 0, card.confusion.trim()].filter(Boolean).length;
 
   function finishQuestion() {
     if (!card.confusion.trim() || questionPrompted.current) return;
@@ -43,26 +44,30 @@ export default function Onboarding({ initial, onBuildCard, history, onDraftChang
       <div className="onb-eyebrow">开始前，只需要回答 3 件事</div>
       <h2>先说清你现在卡在哪里</h2>
       <p className="muted">我会先找知乎上的真实讨论，再把不同答案放在一起。城市、经历和时间压力都可以稍后补充。</p>
+      <div className="onb-progress" aria-label={`建档进度，已完成 ${completedCount} 项，共 3 项`}>
+        <div className="onb-progress-track"><span style={{ width: `${(completedCount / 3) * 100}%` }} /></div>
+        <span>已完成 {completedCount}/3</span>
+      </div>
 
-      <div className="onb-block">
-        <div className="onb-label"><span className="onb-index">01</span>你现在在哪段山路上</div>
+      <div className={`onb-block${card.stage ? ' complete' : ''}`}>
+        <div className="onb-label"><span className="onb-index">{card.stage ? '✓' : '01'}</span><span>你现在在哪段山路上</span><small>决定我优先找哪类过来人经验</small></div>
         <div className="chips">
           {STAGES.map((s) => (
-            <button key={s.id} className={`chip${card.stage === s.id ? ' on' : ''}`} onClick={() => set({ stage: s.id })}>{s.name}</button>
+            <button key={s.id} type="button" aria-pressed={card.stage === s.id} className={`chip${card.stage === s.id ? ' on' : ''}`} onClick={() => set({ stage: s.id })}>{s.name}</button>
           ))}
         </div>
       </div>
 
-      <div className="onb-block">
-        <div className="onb-label"><span className="onb-index">02</span>想朝哪个方向走（可多选，或选“暂未明确”）</div>
+      <div className={`onb-block${card.goals.length ? ' complete' : ''}`}>
+        <div className="onb-label"><span className="onb-index">{card.goals.length ? '✓' : '02'}</span><span>想朝哪个方向走（可多选，或选“暂未明确”）</span><small>帮助过滤与你无关的讨论</small></div>
         <div className="chips">
           {GOALS.map((g) => (
-            <button key={g.id} className={`chip${card.goals.includes(g.id) ? ' on' : ''}`} onClick={() => toggleGoal(g.id)}>{g.name}</button>
+            <button key={g.id} type="button" aria-pressed={card.goals.includes(g.id)} className={`chip${card.goals.includes(g.id) ? ' on' : ''}`} onClick={() => toggleGoal(g.id)}>{g.name}</button>
           ))}
         </div>
       </div>
 
-      <label className="onb-text onb-question"><span className="onb-label"><span className="onb-index">03</span>你现在最想判断什么</span>
+      <label className={`onb-text onb-question${card.confusion.trim() ? ' complete' : ''}`}><span className="onb-label"><span className="onb-index">{card.confusion.trim() ? '✓' : '03'}</span>你现在最想判断什么</span>
         <textarea
           aria-label="你站在哪个路口"
           rows={2}
@@ -71,6 +76,7 @@ export default function Onboarding({ initial, onBuildCard, history, onDraftChang
           onChange={(e) => set({ confusion: e.target.value })}
           onBlur={finishQuestion}
         />
+        <span className="onb-field-note">不用先想出标准答案，这句话会成为本次山径的主问题。</span>
       </label>
 
       <details className="onb-more" id="onboarding-more">
@@ -132,7 +138,9 @@ export default function Onboarding({ initial, onBuildCard, history, onDraftChang
         <button className="primary" disabled={!canBuild || !card.confusion.trim()} onClick={() => onBuildCard(card)}>
           开始看真实观点 →
         </button>
-        {!card.confusion.trim() && <span className="muted">再写下你现在最想判断的事，就可以开始。</span>}
+        {completedCount < 3
+          ? <span className="muted">还差 {3 - completedCount} 项，就可以开始。</span>
+          : <span className="onb-ready">路标已齐，下一步会先让你确认，不会立刻检索。</span>}
       </div>
 
       {history?.topics?.length > 0 && (

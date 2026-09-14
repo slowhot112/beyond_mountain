@@ -100,6 +100,10 @@ a { color: var(--zhihu); }
 }
 .oauth-btn:hover { background: var(--zhihu-ink); transform: translateY(-1px); }
 .oauth-btn:disabled { opacity: .5; cursor: default; transform: none; }
+.topbar-account { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #b9daf4; border-radius: 9px; background: #f5faff; color: var(--zhihu-ink); font-size: 12px; white-space: nowrap; }
+.topbar-account .account-status-dot { width: 7px; height: 7px; box-shadow: none; }
+.topbar-logout { padding: 0 0 0 7px; border: 0; border-left: 1px solid #cfe2f1; background: transparent; color: #71808a; font: inherit; cursor: pointer; }
+.topbar-logout:hover { color: #c64c4c; }
 
 /* 登录完成后要像一个明确的账户状态，而不是藏在页面底部的一行说明。 */
 .landing-account.is-authenticated {

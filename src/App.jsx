@@ -382,7 +382,10 @@ export default function App() {
       {step !== 'landing' && (
         <header className="topbar">
           <div><div className="brand">山外山</div><div className="brand-sub">不替你选路，只把众声摆成你能看清的山势</div></div>
-          {step !== 'journal' && records.length > 0 && <button type="button" className="topbar-journal" onClick={() => go('journal')}>行动簿</button>}
+          <div className="topbar-right">
+            {auth.authenticated && <div className="topbar-account"><span className="account-status-dot" aria-hidden="true" /><span>知乎已连接</span><button type="button" className="topbar-logout" onClick={logoutZhihu}>退出</button></div>}
+            {step !== 'journal' && records.length > 0 && <button type="button" className="topbar-journal" onClick={() => go('journal')}>行动簿</button>}
+          </div>
         </header>
       )}
 

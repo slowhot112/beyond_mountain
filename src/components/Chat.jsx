@@ -5,7 +5,7 @@ import { api, recordToText } from '../lib.js';
 // 不依赖外部向量库——每次把历史压成文本塞进 prompt，先把"知识库"概念跑通。
 export default function Chat({ records = [], onBack }) {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '你好，我是山外山的小助手。你可以问我你之前炼过的炼金包，或者任何求职判断相关的问题——我会参考你过去的分析来回答。' },
+    { role: 'assistant', content: '你好，我是山外山的小助手。你可以问我走过的山径，或者任何求职判断相关的问题。我会参考你过去确认过的判断来回答。' },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,11 +42,11 @@ export default function Chat({ records = [], onBack }) {
   return (
     <section className="card chat">
       <div className="chat-head">
-        <h2>聊聊你炼过的</h2>
+        <h2>聊聊你走过的路</h2>
         <button className="chip ghost" onClick={onBack}>← 返回我的地盘</button>
       </div>
       <p className="muted chat-sub">
-        AI 会参考你过去炼过的来回答。你已经炼过 {records.length} 个炼金包。
+        我会参考你过去确认过的判断来回答。行动簿里已有 {records.length} 段山径。
       </p>
 
       <div className="chat-body">
@@ -67,7 +67,7 @@ export default function Chat({ records = [], onBack }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="问问你过去的炼金包，或任何判断相关的问题…（Enter 发送 / Shift+Enter 换行）"
+          placeholder="问问你走过的山径，或任何判断相关的问题…（Enter 发送 / Shift+Enter 换行）"
         />
         <button className="primary" onClick={send} disabled={loading || !input.trim()}>发送</button>
       </div>

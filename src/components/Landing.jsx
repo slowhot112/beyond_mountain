@@ -28,8 +28,8 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
 
       <p className="landing-tagline">
         {has
-          ? `你的山径上已有 ${list.length} 座山头${list.length >= 30 ? '（山径最多记 30 座山头，更早的会被新的替下）' : ''}。每次炼金都是插下的一面小旗——点开任意一座，都能回到那天你看到的山势。`
-          : '山外有山，路在脚下。每一次炼金，都是你在山径上插的一面小旗。'}
+          ? `你的山径上已有 ${list.length} 座山头${list.length >= 30 ? '（山径最多记 30 座山头，更早的会被新的替下）' : ''}。每一次判断，都是你在山径上插下的一面小旗。点开任意一座，都能回到那天你看到的山势。`
+          : '山外有山，路在脚下。每一次判断，都是你在山径上插下的一面小旗。'}
       </p>
 
       {has && (
@@ -122,7 +122,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
         ) : (
           <div className="growth-map-empty">
             你的成长山径 · <b>还空着</b><br />
-            炼出第一个炼金包后，这里会亮起一座座山头，串成你的路。
+            完成第一段山径后，这里会亮起一座山头，慢慢串成你走过的路。
           </div>
         )}
       </div>

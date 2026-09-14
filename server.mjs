@@ -247,7 +247,7 @@ async function readBody(req, limit = 1_000_000) {
 
 // 把前端传来的历史炼金包清单拼成知识库文本（轻量 RAG：不依赖向量库）
 function buildKnowledgeBase(kb) {
-  if (!Array.isArray(kb) || !kb.length) return '（你还没炼过，我先听着）';
+  if (!Array.isArray(kb) || !kb.length) return '（行动簿还是空的，我先听着）';
   return kb.map((k, i) => `【历史 ${i + 1}】${k.topic || '未命名'}\n${k.text || ''}`).join('\n\n');
 }
 
@@ -457,13 +457,13 @@ const server = createServer(async (req, res) => {
       if (!messages.length) return sendJson(res, { ok: false, code: 'EMPTY', message: '消息为空' }, 400);
       const knowledge = buildKnowledgeBase(kb);
       const lastUser = messages[messages.length - 1]?.content || '';
-      const sys = `你是「刘看山」，山外山里的 AI 伙伴，像一位长期陪用户翻山、练判断力的朋友。\n用户过去炼过的炼金包如下：\n${knowledge}\n\n回答原则：\n1) 如果用户问到他某次炼金包的内容，请直接引用对应分析作答；\n2) 如果他没炼过相关的，可基于知乎通用「信谁框架」给建议，并明确说明这是通用建议、不是来自他的历史；\n3) 多结合用户的处境（阶段/目标/城市/时间压力）说话，别泛泛而谈。\n4) 用中文，简洁有温度，语气像一个陪你爬山的伙伴。`;
+      const sys = `你是「刘看山」，山外山里的 AI 伙伴，像一位长期陪用户翻山、练判断力的朋友。\n用户过去走过的相关山径如下：\n${knowledge}\n\n回答原则：\n1) 如果用户问到某段山径里的判断，请直接引用对应分析作答；\n2) 如果行动簿里没有相关记录，可基于知乎通用「信谁框架」给建议，并明确说明这是通用建议，不是来自用户的历史；\n3) 多结合用户的处境（阶段、目标、城市、时间压力）说话，别泛泛而谈。\n4) 用中文，简洁有温度，语气像一个陪用户爬山的伙伴。`;
       const prompt = sys + '\n\n用户最新问题：' + lastUser;
       let reply = '';
       const live = await reserveDaily('ai');
       const requestSecret = live ? ACTIVE_SECRET : '';
       if (requestSecret) reply = await zhihu.zhihuZhida(requestSecret, prompt, OPENAI_MODEL, 600, '');
-      if (!reply) reply = '（这会儿还没接上能回答的服务。你可以先去「我的山径」翻翻以前炼过的。）';
+      if (!reply) reply = '（这会儿还没接上能回答的服务。你可以先去「我的山径」看看以前的判断。）';
       return sendJson(res, { ok: true, data: { reply, quotaFallback: !requestSecret && Boolean(ACTIVE_SECRET) } });
     }
 

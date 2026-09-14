@@ -57,7 +57,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
     if (firedRef.current[key]) return;
     let text = null;
     if (step === 'landing' && records.length === 0) {
-      text = '第一次来呀？先标记你的位置，我陪你炼出第一个炼金包吧～ 点我随时聊。';
+      text = '第一次来呀？先标记你的位置，我陪你走出第一段山径吧。点我随时聊。';
     } else if (step === 'landing' && journal.waiting > 0) {
       text = `你带回的现实里有 ${journal.waiting} 条新脚印，正在行动簿等你确认。确认前，我不会把它们当成你的新结论。`;
     } else if (step === 'result0') {
@@ -206,12 +206,12 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder={currentData ? '问当前这个炼金包，或任何判断问题…（Enter 发送）' : '问问你过去的炼金包，或任何判断问题…（Enter 发送）'}
+              placeholder={currentData ? '问问眼前这段山径，或任何判断问题…（Enter 发送）' : '问问你走过的山径，或任何判断问题…（Enter 发送）'}
             />
             <button className="primary" onClick={send} disabled={loading || !input.trim()}>发送</button>
           </div>
           <div className="spirit-foot muted">
-            {records.length ? `你炼过 ${records.length} 个炼金包` : '还没炼过，先炼一个吧'}{currentData ? ' · 我正看着你眼前这一个' : ''}
+            {records.length ? `行动簿已有 ${records.length} 段山径` : '还没有山径记录，先标记位置吧'}{currentData ? ' · 我正陪你看眼前这一段' : ''}
           </div>
         </section>
       )}

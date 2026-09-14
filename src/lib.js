@@ -653,7 +653,7 @@ export function exportMd(d) {
   let md = `# 山外山 · 观山台：${d.topic}\n\n`;
   md += d.mock
     ? `> 这是演示数据，用来体验完整流程；其中的示例素材不对应真实知乎文章。\n\n`
-    : `> 不替你下结论，帮你在知乎众声里炼出自己的判断。\n\n`;
+    : `> 不替你下结论，陪你从知乎众声里看清脚下的路。\n\n`;
   md += `## 众声对照\n`;
   md += `> ${d.conflict?.summary || ''}\n\n`;
   (d.conflict?.roles || []).forEach((s) => {

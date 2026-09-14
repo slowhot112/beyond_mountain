@@ -61,7 +61,7 @@ export default function App() {
   async function startZhihuLogin() {
     try {
       const result = await api('/api/auth/login');
-      if (result?.data?.authorizeUrl) window.location.assign(result.data.authorizeUrl);
+      if (result?.authorizeUrl) window.location.assign(result.authorizeUrl);
       else setError(result?.message || '当前无法发起知乎登录，仍可继续游客模式。');
     } catch { setError('知乎登录暂时不可用，仍可继续游客模式。'); }
   }

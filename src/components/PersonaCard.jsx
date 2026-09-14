@@ -25,6 +25,13 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
     return () => window.clearInterval(timer);
   }, [alchemyLoading]);
 
+  useEffect(() => {
+    if (!alchemyLoading) { setElapsed(0); return undefined; }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [alchemyLoading]);
+
   function save() { onEdit(draft); setEditing(false); }
 
   return (

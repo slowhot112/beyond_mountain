@@ -19,6 +19,11 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
         </>
       ) : (
         <>
+          <div className="landing-eyebrow">长期陪伴 · 判断时间线</div>
+          <h1 className="landing-title">我的山径</h1>
+        </>
+      ) : (
+        <>
           <div className="landing-figure">
             <img className="landing-figure-img"
               src={`/liukanshan/${encodeURIComponent('待机_5秒_320x320_20fps_透明.gif')}`}
@@ -66,6 +71,12 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
             onOpen?.(pending || list[0]);
           }}>继续 →</button>
         </div>
+      )}
+
+      {!has && (
+        <p className="landing-desc">
+          知乎上的每一条过来人经验，都是一座有人翻过的山。山外山不替你决定翻哪座山——它接入知乎搜索、全网搜索与知乎直答，从真实高赞讨论里拾起与你处境相近的脚印，摆成几种声音。
+        </p>
       )}
 
       {!has && (

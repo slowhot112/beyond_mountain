@@ -25,13 +25,6 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
     return () => window.clearInterval(timer);
   }, [alchemyLoading]);
 
-  useEffect(() => {
-    if (!alchemyLoading) { setElapsed(0); return undefined; }
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
-    return () => window.clearInterval(timer);
-  }, [alchemyLoading]);
-
   function save() { onEdit(draft); setEditing(false); }
 
   return (
@@ -54,7 +47,7 @@ export default function PersonaCard({ card, onConfirm, onEdit, onUploadResume, o
                   </div>
                 ))}
               </div>
-              <div className="pc-loading-note">需要同时打开并核对真实来源，通常需要 30–90 秒。完成后会自动进入观山台，请勿重复点击。</div>
+              <div className="pc-loading-note">正在并行核对知乎与全网来源，通常需要 20–60 秒。完成后会自动进入观山台，请勿重复点击。</div>
             </div>
           </div>
         </div>

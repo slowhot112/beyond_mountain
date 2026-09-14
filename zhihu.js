@@ -476,7 +476,8 @@ export async function alchemy(secret, topic, persona = { identity: 'pre', indust
   let items = [];
   searchResults.forEach((r) => { if (r.status === 'fulfilled' && Array.isArray(r.value)) items = items.concat(r.value); });
   // 去重 + 权重选料：知乎为主体（占 3/4），全网补位（占 1/4）；一方不足时名额让给另一方
-  const picked = pickCorpus(items, 10, topic);
+  // 8 条来源足够支撑观点对照；减少无关上下文，降低直答等待时间。
+  const picked = pickCorpus(items, 8, topic);
   const { zhihuItems, webItems } = picked;
   items = picked.corpus; // 兜底/补全/来源分配都复用这份精选语料，保证展示的来源和喂给模型的一致
   const corpus = picked.corpus
@@ -553,9 +554,9 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
   // 调用直答：最多重试 3 次，总耗时受 ALCHEMY_BUDGET 全局预算约束，超预算立即走真实数据兜底（绝不干等/前端超时）
   let json = null;
   let roles = [];
-  const ALCHEMY_BUDGET = 85000; // 直答阶段最长占用（ms）；单次直答超时放宽到 70s（云端服务器到知乎是跨洋链路，常需 40~70s 才回），总预算 85s 预留一次快速重试
+  const ALCHEMY_BUDGET = 65000; // 直答阶段最长占用（ms）；避免失败重试把用户长时间卡在等待页
   const startedAt = Date.now();
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     if (Date.now() - startedAt > ALCHEMY_BUDGET) {
       console.warn('[alchemy] zhida budget exceeded, skip remaining attempts -> fallback');
       break;
@@ -564,7 +565,7 @@ ${corpus || '（无检索结果，请基于该行业常识生成）'}`;
       ? prompt
       : prompt + '\n\n（务必只返回合法 JSON，且 conflict.roles 至少 2 个，每个含 id/name/coreArg/sources/matchReason；不要任何额外文字。）';
     // 缓存 key 必须带处境：否则同一个问题、不同城市/时间压力的人会拿到别人处境下的回答
-    const r = await zhihuZhida(secret, aug, OPENAI_MODEL, 600, `${topic}#${personaDigest}`, 70000);
+    const r = await zhihuZhida(secret, aug, OPENAI_MODEL, 600, `${topic}#${personaDigest}`, 50000);
     if (!r || !r.trim()) { console.warn('[alchemy] zhida empty, attempt', attempt); continue; }
     try {
       const parsed = JSON.parse(extractJson(r));

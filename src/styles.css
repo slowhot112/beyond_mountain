@@ -101,6 +101,25 @@ a { color: var(--zhihu); }
 .oauth-btn:hover { background: var(--zhihu-ink); transform: translateY(-1px); }
 .oauth-btn:disabled { opacity: .5; cursor: default; transform: none; }
 
+/* 登录完成后要像一个明确的账户状态，而不是藏在页面底部的一行说明。 */
+.landing-account.is-authenticated {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin-top: 14px; padding: 13px 14px;
+  border: 1px solid #b9daf4; border-radius: 12px; background: #f5faff;
+}
+.landing-account-status { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--zhihu-ink); }
+.landing-account-status b { display: block; font-size: 13px; line-height: 1.35; }
+.landing-account-status small { display: block; margin-top: 2px; color: #637d8b; font-size: 11.5px; line-height: 1.4; }
+.account-status-dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: #17a673; box-shadow: 0 0 0 4px rgba(23,166,115,.12); }
+.landing-account-actions { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.account-sync-btn { min-height: 34px; padding: 6px 11px; font-size: 12px; }
+.account-logout-btn { color: #71808a; font-size: 12px; white-space: nowrap; }
+.account-logout-btn:hover { color: #c64c4c; }
+@media (max-width: 620px) {
+  .landing-account.is-authenticated { align-items: stretch; flex-direction: column; }
+  .landing-account-actions { justify-content: flex-start; }
+}
+
 /* ---------- hero ---------- */
 .hero {
   padding: clamp(48px, 9vw, 96px) 20px clamp(28px, 5vw, 52px);

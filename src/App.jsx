@@ -66,6 +66,17 @@ export default function App() {
     } catch { setError('知乎登录暂时不可用，仍可继续游客模式。'); }
   }
 
+  async function logoutZhihu() {
+    try {
+      await api('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // 即使服务端会话已经过期，也要把前端状态恢复成游客模式。
+    } finally {
+      setAuth({ authenticated: false, user: null, loading: false });
+      setError('已退出知乎账号。本机行动簿仍保留，你可以继续使用或导出。');
+    }
+  }
+
   async function syncArchive() {
     if (!auth.authenticated) return startZhihuLogin();
     try {
@@ -395,6 +406,7 @@ export default function App() {
             authConfig={authConfig}
             onLogin={startZhihuLogin}
             onSync={syncArchive}
+            onLogout={logoutZhihu}
             onOpenJournal={() => go('journal')}
             />
         )}

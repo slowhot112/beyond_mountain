@@ -4,7 +4,7 @@ import { journalSummary } from '../journal.js';
 
 // 「我的山径」：有历史时展示成长山径（时间线节点），无历史也露出「暂无记录」引导，
 // 让"长期陪伴"的概念随时看得见。知识库对话已统一由右下角常驻的刘看山承担。
-export default function Landing({ onStart, records = [], onOpen, onClear, onExport, onImport, onOpenJournal, auth = {}, authConfig = {}, onLogin, onSync }) {
+export default function Landing({ onStart, records = [], onOpen, onClear, onExport, onImport, onOpenJournal, auth = {}, authConfig = {}, onLogin, onSync, onLogout }) {
   const list = Array.isArray(records) ? records : [];
   const has = list.length > 0;
   const journal = journalSummary(list);
@@ -13,11 +13,6 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
     <section className={`card landing${has ? ' landing-returning' : ' landing-first'}`}>
       {has && <div className="far-hills far-hills-home" aria-hidden="true" />}
       {has ? (
-        <>
-          <div className="landing-eyebrow">长期陪伴 · 判断时间线</div>
-          <h1 className="landing-title">我的山径</h1>
-        </>
-      ) : (
         <>
           <div className="landing-eyebrow">长期陪伴 · 判断时间线</div>
           <h1 className="landing-title">我的山径</h1>
@@ -103,9 +98,12 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
           </label>
         </div>
         <small className="landing-storage-note">{auth?.authenticated ? '已登录：行动簿可同步到知乎账号；每次合并前都会先让你确认。' : '记录保存在当前设备；换设备时导出后再导入，不会自动同步到云端。'}</small>
-        <div className="landing-account" aria-live="polite">
+        <div className={`landing-account${auth?.authenticated ? ' is-authenticated' : ''}`} aria-live="polite">
           {auth?.authenticated ? (
-            <><span className="landing-account-state">已连接知乎账号：{auth.user?.name || '知乎用户'}</span><button type="button" className="link-btn" onClick={onSync}>同步行动簿</button></>
+            <>
+              <div className="landing-account-status"><span className="account-status-dot" aria-hidden="true" /><span><b>知乎账号已连接</b><small>{auth.user?.name || '知乎用户'} · 行动簿可跨设备同步</small></span></div>
+              <div className="landing-account-actions"><button type="button" className="oauth-btn account-sync-btn" onClick={onSync}>同步行动簿</button><button type="button" className="link-btn account-logout-btn" onClick={onLogout}>退出登录</button></div>
+            </>
           ) : authConfig?.enabled ? (
             <><span className="landing-account-copy">想在其他设备继续？</span><button type="button" className="oauth-btn" onClick={onLogin}>使用知乎登录</button></>
           ) : <span className="landing-account-copy">知乎登录同步尚未配置，当前可用游客模式和档案迁移。</span>}

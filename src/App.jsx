@@ -31,7 +31,7 @@ export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState(loadHistory());
-  const [records, setRecords] = useState(loadRecords()); // 历史炼金包（完整存档，点开可回看）
+  const [records, setRecords] = useState(loadRecords()); // 历史山径（完整存档，点开可回看）
   const [topic, setTopic] = useState('');
   const [resumeLoading, setResumeLoading] = useState(false);
   const [resumeErr, setResumeErr] = useState(null);
@@ -181,7 +181,7 @@ export default function App() {
     setTopic(topicStr);
     try {
       // 联动：把历史存档（含上一轮的行动结果 feedback）一起交给后端，
-      // 下次炼金才知道「哪些判断已经验证过、哪条路线被现实打脸」，避免重复验证、该换路的换路。
+      // 下一次判断知道「哪些判断已经验证过、哪条路线被现实推翻」，避免重复验证、该换路的换路。
       const started = await api('/api/alchemy/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -340,7 +340,7 @@ export default function App() {
   }
 
   // 行动地图里的「做过 / 现实裁判 / 你写的反馈」写回存档：
-  // 这样下一次炼金和下一次排路线，都能读到上一轮的真实结果（反哺闭环）
+  // 这样下一次判断和下一次排路线，都能读到上一轮的真实结果（反哺闭环）
   function handleActionFeedback(feedback) {
     if (!currentRecordId.current) return;
     updateRecordActionFeedback(currentRecordId.current, feedback);

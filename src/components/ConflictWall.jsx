@@ -55,13 +55,16 @@ function sourceKind(item) {
 
 function roleSourceLabel(role, demo) {
   if (demo) return '演示素材';
-  const first = (role?.sourceItems || []).find((item) => sourceKind(item) !== 'demo' && item?.url);
-  if (!first) return '暂无可核验原文';
-  return first.author || (sourceKind(first) === 'zhihu' ? '知乎原文' : '全网原文');
+  const sources = (role?.sourceItems || []).filter((item) => sourceKind(item) !== 'demo' && item?.url);
+  if (!sources.length) return '暂无可核验原文';
+  const zhihuCount = sources.filter((item) => sourceKind(item) === 'zhihu').length;
+  const webCount = sources.filter((item) => sourceKind(item) === 'web').length;
+  if (zhihuCount && webCount) return `知乎 ${zhihuCount} 条 · 全网 ${webCount} 条`;
+  return zhihuCount ? `知乎原文 ${zhihuCount} 条` : `全网原文 ${webCount} 条`;
 }
 
 function SourceCard({ item, demo = false }) {
-  const [flip, setFlip] = useState(false);
+  const [open, setOpen] = useState(false);
   // 全网结果没有点赞数据（网页不点赞），它按权威等级参与排序；这里把来源与可信度标出来，让"信谁"有依据
   const kind = sourceKind(item);
   const isWeb = kind === 'web';
@@ -71,35 +74,33 @@ function SourceCard({ item, demo = false }) {
   if (!isDemo && item.voteUp) parts.push(`${item.voteUp} 赞`);
   const meta = parts.join(' · ');
   const title = cleanSourceTitle(item.title);
-  function toggleFlip() { setFlip((f) => !f); }
-  function onKeyDown(e) {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFlip(); }
-  }
   return (
-    <div
-      className={`source-card${flip ? ' flipped' : ''}${isWeb ? ' web' : ''}${isDemo ? ' demo' : ''}`}
-      role="button"
-      tabIndex={0}
-      aria-pressed={flip}
-      aria-label={`${title}，${flip ? '收起摘要' : '查看摘要'}`}
-      onClick={toggleFlip}
-      onKeyDown={onKeyDown}
-    >
-      <div className="source-front">
-        <div className="source-title">{esc(title)}</div>
-        <div className="source-badges">
-          <span className={`src-badge ${isDemo ? 'demo' : (isWeb ? 'web' : 'zhihu')}`}>{isDemo ? '演示' : (isWeb ? '全网' : '知乎')}</span>
-          {!isDemo && item.authority ? <span className="src-badge auth">分量 {esc(String(item.authority))} 级</span> : null}
+    <article className={`source-card${open ? ' expanded' : ''}${isWeb ? ' web' : ''}${isDemo ? ' demo' : ''}`}>
+      <button
+        type="button"
+        className="source-card-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="source-card-main">
+          <span className="source-title">{esc(title)}</span>
+          <span className="source-badges">
+            <span className={`src-badge ${isDemo ? 'demo' : (isWeb ? 'web' : 'zhihu')}`}>{isDemo ? '演示' : (isWeb ? '全网' : '知乎')}</span>
+            {!isDemo && item.authority ? <span className="src-badge auth">参考级别 {esc(String(item.authority))}</span> : null}
+          </span>
+          <span className="source-meta">{esc(meta || (isDemo ? '示例内容' : '可打开核对原文'))}</span>
+        </span>
+        <span className="source-card-action">{open ? '收起摘要' : '查看摘要'} <span aria-hidden="true">{open ? '↑' : '↓'}</span></span>
+      </button>
+      {open && (
+        <div className="source-details">
+          <div className="source-brief">{esc(brief(item.summary))}</div>
+          {isDemo || !item.url
+            ? <span className="source-link source-link-disabled">演示素材，不对应外部文章</span>
+            : <a href={item.url} target="_blank" rel="noreferrer" className="source-link">{isWeb ? '打开原文核对 ↗' : '打开知乎原文核对 ↗'}</a>}
         </div>
-        <div className="source-meta">{esc(meta || '翻面看梗概')}</div>
-      </div>
-      <div className="source-back">
-        <div className="source-brief">{esc(brief(item.summary))}</div>
-        {isDemo || !item.url
-          ? <span className="source-link source-link-disabled">演示素材，不打开外部原文</span>
-          : <a href={item.url} target="_blank" rel="noreferrer" className="source-link" onClick={(e) => e.stopPropagation()}>{isWeb ? '打开原文 →' : '打开知乎原文 →'}</a>}
-      </div>
-    </div>
+      )}
+    </article>
   );
 }
 
@@ -259,7 +260,7 @@ export default function ConflictWall({ conflict, persona, onNext, onTaskChange, 
                 <span className={`role-mark role-mark-${(i % 5) + 1}`} aria-hidden="true">{i + 1}</span>
                 <div>
                   <div className="role-name">{esc(displayRoleName(s, i))}</div>
-                  <div className="role-form">观点身份 · 来自真实讨论</div>
+                  <div className="role-form">{demo ? '观点身份 · 演示观点' : (s.sourceItems || []).some((item) => item?.url && sourceKind(item) !== 'demo') ? '观点身份 · 可核验来源' : '观点身份 · 待验证假设'}</div>
                 </div>
               </div>
               <span className="role-toggle">{openIdx === i ? '收起' : '查看这条观点'}</span>

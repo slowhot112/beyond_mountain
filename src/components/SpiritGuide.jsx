@@ -137,7 +137,7 @@ export default function SpiritGuide({ records = [], currentData = null, step = '
     setLoading(true);
     setAnim('typing');
     try {
-      // 知识库 = 历史炼金包 + 当前正在看的炼金包（懂场景）
+      // 知识库 = 历史山径 + 当前正在看的山径（懂场景）
       const kb = (records || []).map((r) => ({ ts: r.ts, topic: r.topic || r.data?.topic || '', text: recordToText(r) }));
       if (currentData && currentData.topic) {
         kb.unshift({ ts: Date.now(), topic: '【当前正在看】' + (currentData.topic || ''), text: recordToText({ data: currentData }) });

@@ -102,7 +102,7 @@ function RmpTask({ task, tkey, st, onToggle, onVerdict, onNote, onEvidenceUrl, r
           </button>
         ))}
         {st?.verdict && <span className="rmp-vnote">现实结果已记录，正在行动簿等待你确认变化；确认前不会影响下一次判断。</span>}
-        {/* 现实反馈（用户自己写）：下次炼金/排路线会读它，用来减少重复验证或建议换路 */}
+        {/* 现实反馈（用户自己写）：下一次判断/排路线会读它，用来减少重复验证或建议换路 */}
         <div className="rmp-note" onClick={(e) => e.stopPropagation()}>
           <input
             aria-label="为这段行动留下现实反馈"
@@ -194,7 +194,7 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
   const confidence = routeConfidence(quizResult);
   const missing = routeMissingCount(quizResult);
 
-  // 勾选 / 现实裁判 / 反馈文本统一走这里：既写本地，也回传给 App 存进存档（下次炼金能读到）
+  // 勾选 / 现实裁判 / 反馈文本统一走这里：既写本地，也回传给 App 存进存档（下一次判断能读到）
   function commitRoad(tkey, patch, task) {
     const base = { ...(road[tkey] || {}), ...patch };
     if (task && task.hypothesis) base.hypothesis = task.hypothesis;
@@ -334,8 +334,8 @@ export default function ActionMap({ data, quizResult, persona, prefetchedActions
         {changeInfo && (
           <div className="action-change">
             {changeInfo.changed
-              ? <>两轮答题出现了不同倾向：上一轮更接近「<b>{esc(changeInfo.prevName)}</b>」，本轮更接近「<b>{esc(changeInfo.curName)}</b>」。问题和处境不同也会造成变化，这不代表你更信任某位答主；路线只把它当作一个待验证的新分歧。</>
-              : <>本轮较多选择仍接近「<b>{esc(changeInfo.curName)}</b>」。这只反映当前题目下的答题倾向，不代表你认同某位答主；路线会继续验证它成立的前提。</>}
+              ? <>两轮答题出现了不同倾向：上一轮更接近「<b>{esc(changeInfo.prevName)}</b>」，本轮更接近「<b>{esc(changeInfo.curName)}</b>」。问题和处境不同也会造成变化，路线只把它当作一个待验证的新分歧，不会替你改写原来的判断。</>
+              : <>本轮较多选择仍接近「<b>{esc(changeInfo.curName)}</b>」。这只反映当前题目下的答题倾向，不代表这就是你的最终立场；路线会继续验证它成立的前提。</>}
           </div>
         )}
 

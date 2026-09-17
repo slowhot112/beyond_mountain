@@ -5,7 +5,7 @@ import { esc } from '../lib.js';
 const ENTRIES = [
   {
     step: 'result1',
-    no: '②',
+    no: '1',
     icon: '01',
     title: '众声对照',
     sub: '听听不同脚印',
@@ -14,16 +14,16 @@ const ENTRIES = [
   },
   {
     step: 'result2',
-    no: '③',
+    no: '2',
     icon: '02',
     title: '辨向自测',
     sub: '先站一站',
-    desc: '用 5 道情境题确认你真正相信什么，以及哪里还没有想清楚。',
+    desc: '用 5 道情境题辨认你目前更倾向哪种判断，以及哪里还没有想清楚。',
     meta: (d) => `${d?.quiz?.length || 0} 题 · 约 3 分钟`,
   },
   {
     step: 'result3',
-    no: '④',
+    no: '3',
     icon: '03',
     title: '行动路线',
     sub: '让现实来验证',
@@ -73,8 +73,8 @@ export default function ResultHub({ data, quizDone, onGoto }) {
           <h2>先看找到的真实来源</h2>
           <p>知乎站内与全网资料已经先返回。刘看山正在比对它们的处境和前提，完成后会自动补上观点墙。</p>
           <div className="hub-pending-sources">
-            {(data.sources || []).slice(0, 6).map((item, index) => (
-              <a key={`${item.url || item.title}-${index}`} href={item.url || '#'} target="_blank" rel="noreferrer">
+            {(data.sources || []).filter((item) => item?.url && !item?.demo && item?.source !== 'demo').slice(0, 6).map((item, index) => (
+              <a key={`${item.url || item.title}-${index}`} href={item.url} target="_blank" rel="noreferrer">
                 <span>{item.source === 'web' ? '全网' : '知乎'}</span>{item.title || '未命名来源'} ↗
               </a>
             ))}

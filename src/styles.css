@@ -486,29 +486,30 @@ a { color: var(--zhihu); }
 .sources .meta { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
 
 .source-card {
-  display: grid;
-  cursor: pointer;
-  perspective: 1000px;
-}
-.source-front, .source-back {
-  grid-area: 1 / 1 / 2 / 2;
-  padding: 12px 14px;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: #f7f6f3;
-  backface-visibility: hidden;
-  transition: transform .35s ease;
+  transition: border-color .18s cubic-bezier(.22, 1, .36, 1), box-shadow .18s cubic-bezier(.22, 1, .36, 1);
 }
-.source-front { transform: rotateY(0); }
-.source-back {
-  transform: rotateY(180deg);
-  background: #fff;
+.source-card:hover, .source-card.expanded { border-color: #b9daf4; box-shadow: 0 8px 24px -20px rgba(0,84,176,.55); }
+.source-card-toggle {
+  width: 100%;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.source-card.flipped .source-front { transform: rotateY(180deg); }
-.source-card.flipped .source-back { transform: rotateY(0); }
+.source-card-main { min-width: 0; display: grid; gap: 5px; }
+.source-card-action { flex: none; color: var(--zhihu-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.source-details { padding: 13px 14px 14px; border-top: 1px solid var(--line); background: var(--paper); }
 .source-title { font-weight: 700; color: var(--zhihu-ink); font-size: 14px; line-height: 1.45; }
 .source-meta { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 .source-brief { font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
@@ -1370,7 +1371,7 @@ a { color: var(--zhihu); }
   outline: 3px solid color-mix(in srgb, var(--zhihu) 72%, white);
   outline-offset: 2px;
 }
-.source-card[role="button"] { outline-offset: 4px; }
+.source-card-toggle:focus-visible { outline-offset: -4px; }
 .city-picker-index button { min-width: 36px; min-height: 36px; padding: 6px 9px; }
 .rmp-check { min-height: 40px; padding: 6px 4px; }
 .rmp-check input { width: 18px; height: 18px; }
@@ -1391,6 +1392,8 @@ a { color: var(--zhihu); }
   .pc-loading-card { grid-template-columns: 1fr; justify-items: center; padding: 20px; }
   .pc-loading-copy { width: 100%; }
   .hub-trust-strip .link-btn { margin-left: 0; }
+  .source-card-toggle { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .source-card-action { min-height: 32px; display: inline-flex; align-items: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1500,7 +1503,7 @@ a { color: var(--zhihu); }
 .landing-start { font-size: 15px; padding: 12px 36px; letter-spacing: 2px; border-radius: 12px; }
 .landing-hint { font-size: 12.5px; }
 
-/* 我的地盘：历史炼金包列表 */
+/* 我的地盘：历史山径列表 */
 .record-list { display: flex; flex-direction: column; gap: 10px; margin: 18px 0 4px; text-align: left; }
 .record-item {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;

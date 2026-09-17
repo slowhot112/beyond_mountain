@@ -74,12 +74,6 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
         </p>
       )}
 
-      {!has && (
-        <p className="landing-desc">
-          知乎上的每一条过来人经验，都是一座有人翻过的山。山外山不替你决定翻哪座山——它接入知乎搜索、全网搜索与知乎直答，从真实高赞讨论里拾起与你处境相近的脚印，摆成几种声音。
-        </p>
-      )}
-
       <div className="landing-actions">
         <button className="primary landing-start" onClick={onStart}>
           {has ? '开始新的判断 →' : '标记我的位置 →'}
@@ -150,7 +144,7 @@ export default function Landing({ onStart, records = [], onOpen, onClear, onExpo
                     <div className="map-change">
                       {ch.changed
                         ? <>两轮答题出现了不同倾向：{ch.date || '上一轮'}更接近「{esc(ch.prevName)}」，本轮更接近「{esc(ch.curName)}」。问题和处境可能不同，这条变化只作为后续验证线索。</>
-                        : <>本轮较多选择仍接近「{esc(ch.curName || ch.prevName)}」。这只反映当时题目下的倾向，不代表你认同某位答主。</>}
+                        : <>本轮较多选择仍接近「{esc(ch.curName || ch.prevName)}」。这只反映当时题目下的倾向，不代表这就是你的最终判断。</>}
                     </div>
                   )}
                 </div>

@@ -360,7 +360,7 @@ export function flattenRoadmap(roadmap) {
   return out;
 }
 
-// ---------- 历史炼金包（完整存档，可回看） ----------
+// ---------- 历史山径（完整存档，可回看） ----------
 // 存的是一整次分析的完整快照（处境卡 + 结果 + 自测），刷新或关掉页面都不丢。
 // v 是存档格式版本号：以后改结构时，老存档照样能读出来，不会打不开。
 const RECORDS_KEY = 'alchemy:records';
@@ -515,7 +515,7 @@ export function updateRecordCurrentTask(id, currentTask) {
   } catch {}
 }
 
-// ---------- 界面联动：自测 → 行动地图 → 下次炼金（纯函数，可脱离浏览器回归测试） ----------
+// ---------- 界面联动：自测 → 行动地图 → 下一次判断（纯函数，可脱离浏览器回归测试） ----------
 // 生成「完整路线」的答题门槛：至少答满 4 题（题目不足 4 道时按实际题数算）
 export const ROUTE_MIN_ANSWERED = 4;
 
@@ -556,7 +556,7 @@ export function quizFocusRole(q, roles) {
   if (entries.length) return entries[0][0];
   return (roles && roles[0] && roles[0].id) || '';
 }
-// 把路线任务状态（road）汇总成「上一轮到底做了什么、结果如何」，供下次炼金/下次排路线使用
+// 把路线任务状态（road）汇总成「上一轮到底做了什么、结果如何」，供下一次判断/下次排路线使用
 export function summarizeActionFeedback(road) {
   const st = road && typeof road === 'object' ? road : {};
   const out = { done: 0, up: [], down: [], unclear: [], notes: [] };
@@ -596,7 +596,7 @@ export function buildActionsPayload({ data, quizResult, persona, sources, feedba
     auto: !manual,
   };
 }
-// 打包 /api/alchemy 请求体：历史记录要带上「上一轮行动结果」，下次炼金才知道哪些已验证过
+// 打包 /api/alchemy 请求体：历史记录要带上「上一轮行动结果」，下一次判断才知道哪些已验证过
 export function buildAlchemyPayload({ mode, topic, persona, queries, records }) {
   return {
     mode: mode || 'live',
@@ -637,7 +637,7 @@ export function diffRouteChange(prevRec, curQuiz, curRoles) {
     feedback: prevRec.actionFeedback || null,
   };
 }
-// 行动结果（做完没做、现实裁判、用户写的反馈）写回存档 → 下次炼金能读到
+// 行动结果（做完没做、现实裁判、用户写的反馈）写回存档 → 下一次判断能读到
 export function updateRecordActionFeedback(id, feedback) {
   try {
     const list = loadRecords();
@@ -723,7 +723,7 @@ export function exportMd(d) {
   URL.revokeObjectURL(a.href);
 }
 
-// 把一条历史炼金包压成纯文本，作为知识库 / RAG 的上下文素材（轻量，不依赖向量库）
+// 把一条历史山径压成纯文本，作为知识库 / RAG 的上下文素材（轻量，不依赖向量库）
 export function recordToText(rec) {
   const d = rec?.data || {};
   const parts = [];

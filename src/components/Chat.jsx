@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api, recordToText } from '../lib.js';
 
-// 知识库对话（轻量 RAG）：把历史炼金包作为知识库上下文，AI 引用它来回答。
+// 知识库对话（轻量 RAG）：把历史山径作为知识库上下文，AI 引用它来回答。
 // 不依赖外部向量库——每次把历史压成文本塞进 prompt，先把"知识库"概念跑通。
 export default function Chat({ records = [], onBack }) {
   const [messages, setMessages] = useState([
